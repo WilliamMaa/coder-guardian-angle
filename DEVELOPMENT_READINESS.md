@@ -559,12 +559,16 @@ MVP 阶段使用 YAML / JSON 作为数据格式，不引入数据库。以下对
 #### 6.7.4 API Key 存储策略
 
 - **存储位置**：API Key 不硬编码在代码或文档中，必须存储在项目级配置文件内。
-- **配置文件**：统一存放于 `.repoctx.yaml` 的 `model_provider.api_key` 字段。
+- **配置文件**：支持三种来源，按优先级递减：
+  1. `.repoctx.yaml` 的 `model_provider.api_key` 字段。
+  2. 环境变量 `REPOCTX_TENCENT_API_KEY`。
+  3. 项目根目录 `config.ini` 中 `[DEFAULT]` 节的 `tencent_cloud_llm_api_key`。
 - **读取优先级**：
   1. 优先读取 `.repoctx.yaml` 中 `model_provider.api_key`。
   2. 若该字段为空，尝试读取环境变量 `REPOCTX_TENCENT_API_KEY`。
-  3. 若两者皆无，则报错并提示用户配置 API Key。
-- **安全约束**：`.repoctx.yaml` 必须被加入 `.gitignore`，禁止提交到版本仓库；系统扫描时应自动检查并警告。
+  3. 若前两者皆无，尝试读取 `config.ini` 中 `[DEFAULT]` 节的 `tencent_cloud_llm_api_key`。
+  4. 若三者皆无，则报错并提示用户配置 API Key。
+- **安全约束**：`.repoctx.yaml` 和 `config.ini` 必须被加入 `.gitignore`，禁止提交到版本仓库；系统扫描时应自动检查并警告。
 
 #### 6.7.5 调用场景清单
 

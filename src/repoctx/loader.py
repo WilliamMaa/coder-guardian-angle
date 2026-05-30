@@ -56,7 +56,21 @@ def load_config(project_root: Path | str | None = None) -> RepoCtxConfig:
     if not isinstance(raw, dict):
         raise ConfigNotFoundError(f"Invalid config format in {config_path}: expected mapping")
 
-    return RepoCtxConfig.model_validate(raw)
+    cfg = RepoCtxConfig.model_validate(raw)
+
+    # Fallback: read API key from config.ini if still not configured
+    if not cfg.get_api_key():
+        ini_path = root / "config.ini"
+        if ini_path.exists():
+            import configparser
+
+            parser = configparser.ConfigParser()
+            parser.read(ini_path, encoding="utf-8")
+            key = parser.get("DEFAULT", "tencent_cloud_llm_api_key", fallback=None)
+            if key:
+                cfg.model_provider.api_key = key
+
+    return cfg
 
 
 def generate_config_template(project_root: Path | str) -> Path:

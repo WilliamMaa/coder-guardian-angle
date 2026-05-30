@@ -232,3 +232,30 @@ class TestLoadConfig:
         monkeypatch.chdir(sub)
         cfg = load_config()
         assert cfg.project_name == "auto"
+
+    def test_load_api_key_from_config_ini(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("REPOCTX_TENCENT_API_KEY", raising=False)
+        dump_yaml(
+            {"project_name": "ini", "language": "python", "framework": "django"},
+            tmp_path / ".repoctx.yaml",
+        )
+        (tmp_path / "config.ini").write_text(
+            "[DEFAULT]\ntencent_cloud_llm_api_key = ini-key-123\n"
+        )
+        cfg = load_config(tmp_path)
+        assert cfg.get_api_key() == "ini-key-123"
+
+    def test_config_ini_fallback_only_when_no_other_key(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # env var takes precedence over config.ini
+        monkeypatch.setenv("REPOCTX_TENCENT_API_KEY", "env-key")
+        dump_yaml(
+            {"project_name": "ini", "language": "python", "framework": "django"},
+            tmp_path / ".repoctx.yaml",
+        )
+        (tmp_path / "config.ini").write_text(
+            "[DEFAULT]\ntencent_cloud_llm_api_key = ini-key-123\n"
+        )
+        cfg = load_config(tmp_path)
+        assert cfg.get_api_key() == "env-key"
