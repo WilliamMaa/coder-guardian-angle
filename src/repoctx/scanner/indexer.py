@@ -103,5 +103,9 @@ class Indexer:
             }
             self._write_json(self.repograph_dir / "edges" / f"edge_{edge_idx}.json", edge_doc)
 
-        # 5. rules/ directory placeholder
+        # 5. Full graph snapshot for downstream analysis
+        graph_data = nx.node_link_data(graph, edges="links")
+        self._write_json(self.repograph_dir / "graph.json", graph_data)
+
+        # 6. rules/ directory placeholder
         (self.repograph_dir / "rules").mkdir(parents=True, exist_ok=True)

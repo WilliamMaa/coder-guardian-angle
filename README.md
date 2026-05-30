@@ -233,6 +233,8 @@ capabilities:
 
 ### 1. 生成任务上下文
 
+#### 方式 A：语义驱动（适合有明确任务描述时）
+
 ```bash
 repoctx context "change free call login timing"
 ```
@@ -271,6 +273,69 @@ Suggested Tests:
 
 ```bash
 repoctx context "change free call login timing" --format json
+```
+
+#### 方式 B：入口驱动（适合"拿到一个文件，不知道会影响什么"）
+
+```bash
+repoctx context --from-file backend/freecall/views.py
+```
+
+输出示例：
+
+```
+============================================================
+RepoCtx Guard — Entry Context Report
+============================================================
+
+Entry File: backend/freecall/views.py
+Entry Module: freecall
+
+----------------------------------------
+Upstream — Who depends on this file
+----------------------------------------
+  • frontend/pages/free-call.vue [frontend] (depth 1)
+
+----------------------------------------
+Downstream — What this file depends on
+----------------------------------------
+  • backend/credits/services.py [credits] (depth 1)
+  • backend/auth/views.py [auth] (depth 1)
+
+----------------------------------------
+Modules Involved
+----------------------------------------
+  • auth
+  • credits
+  • freecall
+  • frontend
+
+----------------------------------------
+Protected Cores in Impact Radius
+----------------------------------------
+  ⚠ backend/auth/views.py
+    Files: backend/auth/views.py
+    Path contains strong keywords: ['auth']
+
+----------------------------------------
+Reusable Capabilities Available
+----------------------------------------
+  • get_balance (backend/credits/services.py) — def get_balance(user_id: str) -> int
+
+----------------------------------------
+Risk Summary
+----------------------------------------
+  ! Entry file touches 1 protected core(s): backend/auth/views.py
+
+============================================================
+```
+
+> 入口驱动模式**不调用 LLM**，完全基于已扫描的知识图谱，速度快、成本低、100% 准确。适合 CI 集成或快速探查影响面。
+
+写入文件（不打印到终端）：
+
+```bash
+repoctx context --from-file backend/freecall/views.py -o impact_report.md
 ```
 
 ### 2. 查看当前改动健康度
@@ -328,10 +393,15 @@ Options:
 ### `repoctx context` 参数
 
 ```bash
-repoctx context [OPTIONS] TASK
+repoctx context [OPTIONS] [TASK]
 
 Options:
-  --max-tokens INTEGER  Maximum context length in tokens (default: 3000).
+  --from-file TEXT      Analyze a specific entry file instead of using a
+                        natural-language task.
+  --max-depth INTEGER   Maximum dependency hops for --from-file (default: 2).
+  --max-tokens INTEGER  Maximum context length in tokens for LLM-based
+                        analysis (default: 3000).
+  -o, --output PATH     Write report to a file instead of stdout.
   --format [text|json]  Output format (default: text).
   --help                Show this message and exit.
 ```

@@ -1,5 +1,7 @@
 """RepoCtx Guard CLI entry point and commands."""
 
+from pathlib import Path
+
 import click
 
 from repoctx.context_router import ContextRouter
@@ -36,12 +38,33 @@ def scan(auto_approve: bool) -> None:
 
 
 @main.command()
-@click.argument("task")
+@click.argument("task", required=False)
+@click.option(
+    "--from-file",
+    "entry_file",
+    type=str,
+    default=None,
+    help="Analyze a specific entry file instead of using a natural-language task. "
+         "Example: --from-file backend/freecall/views.py",
+)
+@click.option(
+    "--max-depth",
+    type=int,
+    default=2,
+    help="Maximum dependency hops to traverse when using --from-file (default: 2).",
+)
 @click.option(
     "--max-tokens",
     type=int,
     default=3000,
-    help="Maximum context length in tokens (default: 3000).",
+    help="Maximum context length in tokens for LLM-based analysis (default: 3000).",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, writable=True),
+    default=None,
+    help="Write report to a file instead of stdout.",
 )
 @click.option(
     "--format",
@@ -50,20 +73,59 @@ def scan(auto_approve: bool) -> None:
     default="text",
     help="Output format (default: text).",
 )
-def context(task: str, max_tokens: int, output_format: str) -> None:
-    """Generate minimal but accurate context for a given TASK."""
-    try:
-        router = ContextRouter()
-        report = router.generate(task)
-    except ValueError as e:
-        raise click.ClickException(str(e)) from e
-    except Exception as e:
-        raise click.ClickException(f"Context generation failed: {e}") from e
+def context(
+    task: str | None,
+    entry_file: str | None,
+    max_depth: int,
+    max_tokens: int,
+    output: str | None,
+    output_format: str,
+) -> None:
+    """Generate minimal but accurate context for a given TASK or ENTRY FILE."""
+    content: str
 
-    if output_format == "json":
-        click.echo(report.model_dump_json(indent=2))
+    if entry_file:
+        # Entry-driven analysis (no LLM, graph-based)
+        from repoctx.entry_context import EntryContextAnalyzer
+
+        try:
+            analyzer = EntryContextAnalyzer()
+            entry_report = analyzer.analyze(entry_file, max_depth=max_depth)
+        except RuntimeError as e:
+            raise click.ClickException(str(e)) from e
+        except ValueError as e:
+            raise click.ClickException(str(e)) from e
+        except Exception as e:
+            raise click.ClickException(f"Entry context analysis failed: {e}") from e
+
+        if output_format == "json":
+            content = entry_report.model_dump_json(indent=2)
+        else:
+            content = analyzer.format_text(entry_report)
     else:
-        click.echo(router.format_text(report))
+        # Semantic-driven analysis (LLM-based)
+        if not task:
+            raise click.ClickException(
+                "Please provide a TASK description or use --from-file <path>."
+            )
+        try:
+            router = ContextRouter()
+            semantic_report = router.generate(task)
+        except ValueError as e:
+            raise click.ClickException(str(e)) from e
+        except Exception as e:
+            raise click.ClickException(f"Context generation failed: {e}") from e
+
+        if output_format == "json":
+            content = semantic_report.model_dump_json(indent=2)
+        else:
+            content = router.format_text(semantic_report)
+
+    if output:
+        Path(output).write_text(content, encoding="utf-8")
+        click.echo(f"Report written to: {output}")
+    else:
+        click.echo(content)
 
 
 @main.command()

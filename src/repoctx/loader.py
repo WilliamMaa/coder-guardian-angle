@@ -197,6 +197,26 @@ def generate_protected_core_template(project_root: Path | str) -> Path:
     return path
 
 
+def dump_protected_core_index(index: ProtectedCoreIndex, project_root: Path | str) -> Path:
+    """Persist a protected core index to YAML."""
+    root = Path(project_root).resolve()
+    config = load_config(root)
+    path = root / config.protected_core_file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    dump_yaml(index.model_dump(mode="json", exclude_none=True), path)
+    return path
+
+
+def dump_capability_index(index: CapabilityIndex, project_root: Path | str) -> Path:
+    """Persist a capability index to YAML."""
+    root = Path(project_root).resolve()
+    config = load_config(root)
+    path = root / config.reusable_capabilities_file
+    path.parent.mkdir(parents=True, exist_ok=True)
+    dump_yaml(index.model_dump(mode="json", exclude_none=True), path)
+    return path
+
+
 def generate_capability_template(project_root: Path | str) -> Path:
     """Generate a reusable_capabilities.yaml template with sample entries.
 
