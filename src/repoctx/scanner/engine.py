@@ -12,6 +12,7 @@ from repoctx.loader import (
     load_config,
 )
 from repoctx.models import RepoCtxConfig
+from repoctx.scanner.auto_discovery import discover_modules
 from repoctx.scanner.entity_extractor import EntityExtractor
 from repoctx.scanner.file_scanner import scan_files
 from repoctx.scanner.graph_builder import GraphBuilder
@@ -31,6 +32,8 @@ class ScanEngine:
     def ensure_config(self) -> RepoCtxConfig:
         """Load or generate project configuration.
 
+        Auto-discovers modules if none are defined in the config.
+
         Returns:
             Validated project configuration.
         """
@@ -43,14 +46,38 @@ class ScanEngine:
                 f"Project configuration not found. Generated template at: {template_path}\n"
                 f"Please edit it and re-run 'repoctx scan'."
             ) from None
+
+        # Auto-discover modules if none are explicitly defined
+        if not self.config.modules:
+            discovered = discover_modules(self.project_root, self.config.framework)
+            if discovered:
+                self.config.modules = discovered
+                print(f"[auto-discovery] Found {len(discovered)} modules:")
+                for mod in discovered:
+                    print(f"  - {mod.name}  ->  {mod.path}")
+                print(
+                    "[tip] To fix these modules, add them to .repoctx.yaml.\n"
+                    "      Leave 'modules:' empty to auto-discover each time."
+                )
+
         return self.config
 
-    def run(self) -> Path:
+    def run(self, auto_approve: bool = False) -> Path:
         """Execute the full scan pipeline.
+
+        Args:
+            auto_approve: If True, auto-accept all discovered cores/capabilities.
 
         Returns:
             Path to the generated .repograph/ directory.
         """
+        from repoctx.scanner.auto_analysis import AutoAnalyzer
+        from repoctx.scanner.review_interaction import (
+            review_capabilities,
+            review_protected_cores,
+        )
+        from repoctx.utils.yaml_io import dump_yaml
+
         config = self.ensure_config()
         scanned_at = datetime.now(timezone.utc).isoformat()
 
@@ -84,17 +111,41 @@ class ScanEngine:
         indexer = Indexer(config, self.project_root)
         indexer.persist(graph, scanned_at)
 
-        # Step 6: Generate template indexes if missing
+        # Step 6: Auto-analysis
         repograph_dir = self.project_root / ".repograph"
-        if not (repograph_dir / "protected_core.yaml").exists():
-            generate_protected_core_template(self.project_root)
-        if not (repograph_dir / "reusable_capabilities.yaml").exists():
-            generate_capability_template(self.project_root)
+        analyzer = AutoAnalyzer(graph, config, self.project_root)
+        core_candidates = analyzer.analyze_protected_cores()
+        cap_candidates = analyzer.analyze_capabilities()
+
+        # Step 7: Review interaction
+        if core_candidates.cores or cap_candidates.capabilities:
+            confirmed_cores = review_protected_cores(core_candidates, auto_approve=auto_approve)
+            confirmed_caps = review_capabilities(cap_candidates, auto_approve=auto_approve)
+
+            # Step 8: Write confirmed indexes
+            if confirmed_cores.cores:
+                dump_yaml(
+                    confirmed_cores.model_dump(mode="json", exclude_none=True),
+                    repograph_dir / "protected_core.yaml",
+                )
+                print(f"[scan] Wrote {len(confirmed_cores.cores)} protected cores.")
+            if confirmed_caps.capabilities:
+                dump_yaml(
+                    confirmed_caps.model_dump(mode="json", exclude_none=True),
+                    repograph_dir / "reusable_capabilities.yaml",
+                )
+                print(f"[scan] Wrote {len(confirmed_caps.capabilities)} reusable capabilities.")
+        else:
+            # Fallback: generate empty templates if nothing was auto-detected
+            if not (repograph_dir / "protected_core.yaml").exists():
+                generate_protected_core_template(self.project_root)
+            if not (repograph_dir / "reusable_capabilities.yaml").exists():
+                generate_capability_template(self.project_root)
 
         return repograph_dir
 
 
-def scan_project(cwd: Path | str | None = None) -> Path:
+def scan_project(cwd: Path | str | None = None, auto_approve: bool = False) -> Path:
     """High-level entry point to scan the current project.
 
     If no `.repoctx.yaml` marker is found in any parent directory, the
@@ -119,4 +170,4 @@ def scan_project(cwd: Path | str | None = None) -> Path:
         root = cwd
 
     engine = ScanEngine(root)
-    return engine.run()
+    return engine.run(auto_approve=auto_approve)

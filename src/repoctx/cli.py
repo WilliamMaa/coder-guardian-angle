@@ -17,12 +17,18 @@ def main() -> None:
 
 
 @main.command()
-def scan() -> None:
+@click.option(
+    "--auto-approve",
+    is_flag=True,
+    default=False,
+    help="Auto-accept all discovered protected cores and capabilities without interactive review.",
+)
+def scan(auto_approve: bool) -> None:
     """Scan project and build the knowledge graph index."""
     from repoctx.scanner.engine import scan_project
 
     try:
-        repograph_dir = scan_project()
+        repograph_dir = scan_project(auto_approve=auto_approve)
         click.echo(f"Scan complete. Knowledge graph written to: {repograph_dir}")
     except Exception as e:
         click.echo(f"Scan failed: {e}", err=True)

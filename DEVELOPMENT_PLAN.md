@@ -40,7 +40,7 @@
 
 ---
 
-## 1. 阶段一：运行环境与项目骨架搭建
+## 1. 阶段一：运行环境与项目骨架搭建 ✅ 已完成
 
 ### 1.1 目标
 
@@ -72,7 +72,7 @@
 
 ---
 
-## 2. 阶段二：配置系统与数据模型层
+## 2. 阶段二：配置系统与数据模型层 ✅ 已完成
 
 ### 2.1 目标
 
@@ -103,7 +103,7 @@
 
 ---
 
-## 3. 阶段三：知识图谱扫描引擎（`repoctx scan`）
+## 3. 阶段三：知识图谱扫描引擎（`repoctx scan`） ✅ 已完成
 
 ### 3.1 目标
 
@@ -137,7 +137,7 @@
 
 ---
 
-## 4. 阶段四：腾讯 MaaS 模型调用层
+## 4. 阶段四：腾讯 MaaS 模型调用层 ✅ 已完成
 
 ### 4.1 目标
 
@@ -174,7 +174,7 @@
 
 ---
 
-## 5. 阶段五：Context Router（`repoctx context`）
+## 5. 阶段五：Context Router（`repoctx context`） ✅ 已完成
 
 ### 5.1 目标
 
@@ -208,9 +208,41 @@
 
 ---
 
-## 6. 阶段六：Structure Guard（`repoctx status` 的结构检查部分）
+## 5.5 阶段五·五：自动分析与审核交互（Auto Analysis & Review） ⏳ 待开发
 
-### 6.1 目标
+> **背景**：原设计中 `protected_core.yaml` 和 `reusable_capabilities.yaml` 要求用户手动填写，这与系统初衷（解决大项目 track 不过来）相矛盾。本阶段将其改为**系统自动分析 + 用户审核确认**的模式。
+
+### 5.5.1 目标
+
+`repoctx scan` 完成后，系统自动分析知识图谱，生成候选的受保护核心和可复用能力列表，通过 CLI 交互让用户批量审核确认，最终固化到 YAML 索引中。
+
+### 5.5.2 开发指令
+
+| 步骤 | 指令/动作 | 验收标准 |
+|------|----------|---------|
+| S5.5.1 | **自动模块发现**：根据 `framework` 和目录结构自动推断模块 | Django 项目自动识别每个 app 为模块；Vue/Nuxt 识别 pages/components/composables；FastAPI/Flask 识别 api/models/services；Generic 识别 src/ 下的一级子目录 |
+| S5.5.2 | 用户可覆盖自动发现的模块：`modules` 字段退化为**修正列表** | 自动推断后，用户只需在 `.repoctx.yaml` 中补充推断错误的模块，或删除不需要的模块 |
+| S5.5.3 | **受保护核心自动识别**：基于高扇入、调用链、路径关键词生成候选核心 | 规则：被 >=3 个模块 import 的文件（高扇入）；被 >=10 个文件 import 的文件（高频调用）；路径含 `auth`/`session`/`payment`/`billing`/`core` 关键词；公开接口但无测试覆盖 |
+| S5.5.4 | **可复用能力自动识别**：基于多模块调用、公开接口、稳定签名生成候选能力 | 规则：被 >=2 个模块调用的函数/类；非 `_private` 且被外部 import 的函数；utils/services 目录下被多处调用的函数 |
+| S5.5.5 | **CLI 审核交互**：扫描完成后在终端输出审核报告 | 报告列出候选核心/能力，每项显示：文件路径、被调用次数、建议级别（PROTECTED / REUSABLE）、用户操作提示（y=确认/n=跳过/e=编辑） |
+| S5.5.6 | 支持**批量确认模式**：`repoctx scan --auto-approve` | 信任自动分析结果，无需交互直接固化 |
+| S5.5.7 | 支持**审核文件模式**：生成 `.repograph/review_protected_core.yaml` 和 `.repograph/review_capabilities.yaml` | 用户可手动编辑审核草稿，再运行 `repoctx scan --apply-review` 固化 |
+| S5.5.8 | 编写集成测试：验证自动分析在示例项目上的准确率 | 测试覆盖：Django/Vue/Generic 三种框架的模块推断；高扇入文件识别；公开接口识别 |
+| S5.5.9 | 编写用户可覆盖的测试：验证手动修正优先级高于自动推断 | 用户在 `.repoctx.yaml` 中定义的模块应覆盖自动推断结果 |
+
+### 5.5.3 产出物
+
+- 自动模块发现引擎（框架感知）
+- 受保护核心自动分析引擎（高扇入 + 关键词 + 调用链）
+- 可复用能力自动分析引擎（多模块调用 + 公开接口）
+- CLI 审核交互（逐条确认 / 批量确认 / 审核文件模式）
+- `modules` 字段从"必填列表"退化为"修正覆盖列表"
+- 审核草稿文件（`review_protected_core.yaml`、`review_capabilities.yaml`）
+- 集成测试覆盖三种框架的自动推断
+
+---
+
+## 6. 阶段六：Structure Guard（`repoctx status` 的结构检查部分）
 
 实现新代码的结构检查能力，为 `repoctx status` 和 `repoctx commit-check` 提供 Structure Guard 引擎。
 
@@ -239,7 +271,7 @@
 
 ---
 
-## 7. 阶段七：Test Impact & Regression Guard（`repoctx test-impact`）
+## 7. 阶段七：Test Impact & Regression Guard（`repoctx test-impact`） ⏳ 待开发
 
 ### 7.1 目标
 
@@ -270,7 +302,7 @@
 
 ---
 
-## 8. 阶段八：Legacy Core Guardian（`repoctx commit-check` 的核心保护部分）
+## 8. 阶段八：Legacy Core Guardian（`repoctx commit-check` 的核心保护部分） ⏳ 待开发
 
 ### 8.1 目标
 
@@ -299,7 +331,7 @@
 
 ---
 
-## 9. 阶段九：Commit Gate（`repoctx commit-check`）
+## 9. 阶段九：Commit Gate（`repoctx commit-check`） ⏳ 待开发
 
 ### 9.1 目标
 
@@ -330,7 +362,7 @@
 
 ---
 
-## 10. 阶段十：`repoctx status`
+## 10. 阶段十：`repoctx status` ⏳ 待开发
 
 ### 10.1 目标
 
@@ -362,7 +394,7 @@
 
 ---
 
-## 11. 阶段十一：Experiment Intelligence Agent（`repoctx exp run / summarize`）
+## 11. 阶段十一：Experiment Intelligence Agent（`repoctx exp run / summarize`） ⏳ 待开发
 
 ### 11.1 目标
 
@@ -399,7 +431,7 @@
 
 ---
 
-## 12. 阶段十二：集成测试、验收与文档收尾
+## 12. 阶段十二：集成测试、验收与文档收尾 ⏳ 待开发
 
 ### 12.1 目标
 
@@ -445,7 +477,8 @@
 | 3 | 扫描引擎 | `repoctx scan` | 2 |
 | 4 | 模型调用层 | LLM 客户端、prompt 模板 | 2 |
 | 5 | Context Router | `repoctx context` | 3, 4 |
-| 6 | Structure Guard | 结构检查引擎 | 3, 4 |
+| 5.5 | 自动分析与审核交互 | 自动模块/核心/能力发现 + CLI 审核 | 3, 4, 5 |
+| 6 | Structure Guard | 结构检查引擎 | 3, 4, 5.5 |
 | 7 | Test Impact | 测试影响分析 | 3 |
 | 8 | Legacy Core | 核心保护引擎 | 2 |
 | 9 | Commit Gate | `repoctx commit-check` | 6, 7, 8 |
@@ -462,7 +495,8 @@
 | 腾讯 MaaS API 不稳定或变更接口 | 高 | 封装层做好版本隔离，预留切换到其他模型提供商的接口；错误处理做好降级（如返回本地规则检查结果） |
 | LLM 输出不稳定（JSON 格式不固定） | 高 | prompt 中要求严格 JSON 格式；输出后用 pydantic 校验，失败时重试或返回安全默认值 |
 | 知识图谱扫描性能差 | 中 | 先做基础版（正则+AST），后续迭代引入增量扫描和缓存；大型项目可跳过细粒度实体提取 |
-| 受保护核心索引维护成本高 | 中 | MVP 阶段要求手动维护 20 条，后续可基于代码变更频率自动生成候选 |
+| 受保护核心索引维护成本高 | 中 | ~~MVP 阶段要求手动维护~~ → 已由阶段 5.5 的自动分析解决；用户只需审核，无需从零手写 |
+| 自动分析误判 | 中 | 提供审核交互机制（y/n/e），允许用户覆盖自动推断结果；高置信度结果可批量确认 |
 | 测试映射不准确 | 中 | 先做基于 import 关系的静态映射，后续迭代引入动态覆盖率分析 |
 | Token 成本过高 | 低 | 控制 prompt 长度，缓存相似请求的响应，批量处理审查项 |
 
@@ -484,6 +518,7 @@
 | CP-1 | 阶段 3 结束 | `repoctx scan` 能正确扫描并生成索引 |
 | CP-2 | 阶段 4 结束 | 能成功调用腾讯 MaaS API 并返回正确响应 |
 | CP-3 | 阶段 5 结束 | `repoctx context` 能生成结构化上下文 |
+| CP-3.5 | 阶段 5.5 结束 | `repoctx scan` 能自动推断模块、核心、能力，用户只需审核确认 |
 | CP-4 | 阶段 9 结束 | `repoctx commit-check` 能阻止触碰核心的提交 |
 | CP-5 | 阶段 11 结束 | 能完整运行一次实验并生成双轨诊断 |
 | CP-6 | 阶段 12 结束 | 系统通过全部验收标准，可交付 |

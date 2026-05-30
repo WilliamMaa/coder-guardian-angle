@@ -71,14 +71,14 @@ class TestScanEngine:
     def test_scan_creates_repograph(self, tmp_path: Path) -> None:
         _create_sample_project(tmp_path)
         engine = ScanEngine(tmp_path)
-        repograph_dir = engine.run()
+        repograph_dir = engine.run(auto_approve=True)
 
         assert repograph_dir.exists()
         assert (repograph_dir / "index.json").exists()
 
     def test_index_json_structure(self, tmp_path: Path) -> None:
         _create_sample_project(tmp_path)
-        ScanEngine(tmp_path).run()
+        ScanEngine(tmp_path).run(auto_approve=True)
 
         index_path = tmp_path / ".repograph" / "index.json"
         with open(index_path, encoding="utf-8") as f:
@@ -92,7 +92,7 @@ class TestScanEngine:
 
     def test_module_indexes_created(self, tmp_path: Path) -> None:
         _create_sample_project(tmp_path)
-        ScanEngine(tmp_path).run()
+        ScanEngine(tmp_path).run(auto_approve=True)
 
         backend_mod = tmp_path / ".repograph" / "modules" / "backend.json"
         frontend_mod = tmp_path / ".repograph" / "modules" / "frontend.json"
@@ -108,7 +108,7 @@ class TestScanEngine:
 
     def test_entity_indexes_created(self, tmp_path: Path) -> None:
         _create_sample_project(tmp_path)
-        ScanEngine(tmp_path).run()
+        ScanEngine(tmp_path).run(auto_approve=True)
 
         entities_dir = tmp_path / ".repograph" / "entities"
         assert entities_dir.exists()
@@ -127,7 +127,7 @@ class TestScanEngine:
 
     def test_edge_indexes_created(self, tmp_path: Path) -> None:
         _create_sample_project(tmp_path)
-        ScanEngine(tmp_path).run()
+        ScanEngine(tmp_path).run(auto_approve=True)
 
         edges_dir = tmp_path / ".repograph" / "edges"
         assert edges_dir.exists()
@@ -136,7 +136,7 @@ class TestScanEngine:
 
     def test_excluded_paths_not_indexed(self, tmp_path: Path) -> None:
         _create_sample_project(tmp_path)
-        ScanEngine(tmp_path).run()
+        ScanEngine(tmp_path).run(auto_approve=True)
 
         index_path = tmp_path / ".repograph" / "index.json"
         with open(index_path, encoding="utf-8") as f:
@@ -147,7 +147,7 @@ class TestScanEngine:
 
     def test_generates_template_indexes(self, tmp_path: Path) -> None:
         _create_sample_project(tmp_path)
-        ScanEngine(tmp_path).run()
+        ScanEngine(tmp_path).run(auto_approve=True)
 
         assert (tmp_path / ".repograph" / "protected_core.yaml").exists()
         assert (tmp_path / ".repograph" / "reusable_capabilities.yaml").exists()
@@ -155,7 +155,7 @@ class TestScanEngine:
     def test_high_level_scan_project(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         _create_sample_project(tmp_path)
         monkeypatch.chdir(tmp_path)
-        repograph_dir = scan_project()
+        repograph_dir = scan_project(auto_approve=True)
         assert repograph_dir.exists()
         assert (repograph_dir / "index.json").exists()
 
