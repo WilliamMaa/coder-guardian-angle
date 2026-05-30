@@ -101,9 +101,9 @@ repoctx scan
   - `protected_core.yaml` —— 受保护核心模板
   - `reusable_capabilities.yaml` —— 可复用能力模板
 
-### 第三步：编辑项目配置
+### 第三步：编辑项目配置（可选）
 
-打开生成的 `.repoctx.yaml`，补充项目信息：
+打开生成的 `.repoctx.yaml`，确认或补充项目信息：
 
 ```yaml
 project_name: your-project
@@ -125,7 +125,13 @@ modules:
     type: frontend
 ```
 
-> `modules` 是关键字段，它决定了 Context Router 如何将文件归属到模块。请务必根据实际项目结构填写。
+> `modules` 字段现在**可选**。如果留空（`modules: []`）或直接省略，系统会根据 `framework` 自动发现模块：
+> - `django` —— 自动识别含 `models.py` / `views.py` / `apps.py` 的 Django app
+> - `vue` / `nuxt` —— 自动识别 `pages/`、`components/`、`composables/`、`stores/`
+> - `fastapi` / `flask` —— 自动识别 `api/`、`models/`、`services/`
+> - `generic` —— 自动识别 `src/` 或顶层源码目录
+>
+> 显式定义的 `modules` 会**覆盖**自动发现结果。建议先运行一次 `repoctx scan` 查看自动发现的结果，再决定是否手动固定。
 
 编辑完成后，重新扫描：
 
@@ -133,11 +139,49 @@ modules:
 repoctx scan
 ```
 
-### 第四步：填写受保护核心与可复用能力
+### 第四步：审核自动生成的受保护核心与可复用能力
 
-这两个文件是系统的灵魂，强烈建议认真填写。
+扫描完成后，系统会**自动分析**代码结构，为你生成候选的受保护核心和可复用能力，并进入交互式审核：
 
-**`.repograph/protected_core.yaml`** —— 标记绝对不能碰的底层代码：
+```
+[scan] Found 3 protected core candidates:
+
+  1. backend/auth/views.py
+     Reason: Path contains sensitive keywords: ['auth']
+     [y]es / [n]o / [e]dit > y
+
+  2. backend/credits/services.py
+     Reason: High fan-in: imported by 4 internal files
+     [y]es / [n]o / [e]dit > y
+
+[scan] Found 5 reusable capability candidates:
+
+  1. get_available_balance
+     File: backend/credits/services.py
+     [y]es / [n]o / [e]dit > y
+```
+
+- **`y`** —— 确认，写入正式的 `.repograph/protected_core.yaml` 和 `.repograph/reusable_capabilities.yaml`
+- **`n`** —— 丢弃该候选
+- **`e`** —— 编辑描述后确认
+
+如果你是在 CI / 自动化脚本中运行，不想交互，可以使用 `--auto-approve`：
+
+```bash
+repoctx scan --auto-approve
+```
+
+这会直接接受所有候选，适合首次初始化或定期重建索引。
+
+如果你错过了交互审核，未确认的候选会被写入 `.repograph/review_protected_core.yaml` 和 `.repograph/review_capabilities.yaml`，你可以手动编辑后再重新扫描。
+
+---
+
+#### 手动微调（可选）
+
+自动分析基于启发式规则（路径关键词、fan-in、跨模块调用等），对于非常核心的业务，建议你在自动生成的文件基础上手动补充或调整。例如：
+
+**`.repograph/protected_core.yaml`**
 
 ```yaml
 version: "1.0"
@@ -163,7 +207,7 @@ cores:
       require_rollback_plan: true
 ```
 
-**`.repograph/reusable_capabilities.yaml`** —— 记录已有的稳定能力，引导 AI 复用：
+**`.repograph/reusable_capabilities.yaml`**
 
 ```yaml
 version: "1.0"
@@ -269,6 +313,17 @@ repoctx exp summarize --run exp_v1
 | `repoctx exp summarize` | 🚧 占位 | 总结实验结果与双轨诊断 |
 
 > 标注为 🚧 的命令已注册 CLI 框架，内部逻辑正在逐步开发中。
+
+### `repoctx scan` 参数
+
+```bash
+repoctx scan [OPTIONS]
+
+Options:
+  --auto-approve  Auto-accept all discovered protected cores and capabilities
+                  without interactive review.
+  --help          Show this message and exit.
+```
 
 ### `repoctx context` 参数
 

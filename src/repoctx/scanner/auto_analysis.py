@@ -16,8 +16,8 @@ from repoctx.models import (
     RepoCtxConfig,
 )
 
-# Keywords that suggest a file is sensitive / core
-_PROTECTED_KEYWORDS = [
+# Strong keywords: a file containing one of these is very likely a protected core.
+_STRONG_KEYWORDS = [
     "auth",
     "session",
     "login",
@@ -25,10 +25,14 @@ _PROTECTED_KEYWORDS = [
     "billing",
     "subscription",
     "credit",
-    "core",
-    "common",
-    "utils",
 ]
+
+# Moderate keywords: adds some weight but not enough on its own.
+_MODERATE_KEYWORDS = ["core"]
+
+# Path segments that indicate a file is a utility / helper, not a core asset.
+# Files under these paths are forced out of protected-core candidacy.
+_UTILS_SEGMENTS = ["utils", "common", "helpers", "tools"]
 
 # Verb prefixes that suggest a function is a reusable capability
 _CAPABILITY_VERBS = [
@@ -79,15 +83,24 @@ class AutoAnalyzer:
                 continue
             seen_files.add(file_path)
 
+            # Skip utility files — they are reusable capabilities, not cores.
+            path_parts = file_path.lower().split("/")
+            if any(seg in path_parts for seg in _UTILS_SEGMENTS):
+                continue
+
             score = 0
             reasons: list[str] = []
 
             # Heuristic 1: path keywords
             lower_path = file_path.lower()
-            matched_kws = [kw for kw in _PROTECTED_KEYWORDS if kw in lower_path]
-            if matched_kws:
-                score += 3
-                reasons.append(f"Path contains sensitive keywords: {matched_kws}")
+            strong_hits = [kw for kw in _STRONG_KEYWORDS if kw in lower_path]
+            moderate_hits = [kw for kw in _MODERATE_KEYWORDS if kw in lower_path]
+            if strong_hits:
+                score += 4
+                reasons.append(f"Path contains strong keywords: {strong_hits}")
+            if moderate_hits:
+                score += 2
+                reasons.append(f"Path contains moderate keywords: {moderate_hits}")
 
             # Heuristic 2: fan-in (how many files import this module)
             in_edges = list(self.graph.in_edges(node_id, data=True))
@@ -96,7 +109,7 @@ class AutoAnalyzer:
                 src for src, _, edge_data in in_edges
                 if not edge_data.get("type", "").startswith("external")
             ]
-            if len(internal_importers) >= 3:
+            if len(internal_importers) >= 5:
                 score += 2
                 reasons.append(f"High fan-in: imported by {len(internal_importers)} internal files")
 
@@ -107,11 +120,16 @@ class AutoAnalyzer:
                 if d.get("type") not in ("module", "file")
                 and d.get("file_path") == file_path
             )
-            if entity_count >= 5:
+            if entity_count >= 10:
                 score += 1
                 reasons.append(f"High entity density: {entity_count} functions/classes")
 
-            if score >= 3:
+            # Boost for extremely high fan-in (infrastructure-level files)
+            if len(internal_importers) >= 20:
+                score += 2
+                reasons.append(f"Critical fan-in: imported by {len(internal_importers)} internal files")
+
+            if score >= 4:
                 candidates.append(
                     ProtectedCore(
                         id=f"core-auto-{file_path.replace('/', '_').replace('.', '_')}",

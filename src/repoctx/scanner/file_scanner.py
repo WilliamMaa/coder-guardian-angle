@@ -15,15 +15,30 @@ def should_exclude(
 ) -> bool:
     """Check if a file should be excluded based on patterns.
 
-    Patterns support glob syntax and are matched against both the
-    relative path and the file name.
+    Patterns support glob syntax. They are matched against:
+    - the relative file path
+    - the file name
+    - any directory component in the relative path
     """
     rel_path = file_path.relative_to(project_root).as_posix()
     name = file_path.name
+    path_parts = rel_path.split("/")
 
     for pattern in exclude_patterns:
-        if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(name, pattern):
+        # 1. Match full relative path
+        if fnmatch.fnmatch(rel_path, pattern):
             return True
+        # 2. Match file name
+        if fnmatch.fnmatch(name, pattern):
+            return True
+        # 3. Match any directory component (e.g. "migrations" excludes anything inside migrations/)
+        if "/" not in pattern and "*" not in pattern and pattern in path_parts:
+            return True
+        # 4. Match directory prefix for glob patterns like */migrations/*
+        if pattern.startswith("*/") and pattern.endswith("/*"):
+            dir_name = pattern[2:-2]  # extract "migrations" from "*/migrations/*"
+            if dir_name in path_parts:
+                return True
     return False
 
 

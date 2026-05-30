@@ -56,6 +56,8 @@ class RepoCtxConfig(BaseModel):
             "__pycache__",
             ".repograph",
             "*.egg-info",
+            "*/migrations/*",
+            "db/migrate/*",
         ],
         description="Patterns to exclude from scanning",
     )

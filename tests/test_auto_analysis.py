@@ -166,6 +166,8 @@ class TestAutoAnalysis:
         cores = analyzer.analyze_protected_cores()
 
         names = [c.name for c in cores.cores]
+        # auth/views.py gets +3 for 'auth' keyword; if it also has fan-in >= 5
+        # from the synthetic project it should cross the threshold of 5.
         assert any("auth" in n for n in names), f"Expected auth-related core, got {names}"
 
     def test_detects_reusable_capabilities(self, tmp_path: Path) -> None:
