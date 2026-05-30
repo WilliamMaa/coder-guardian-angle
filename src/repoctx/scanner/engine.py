@@ -18,7 +18,7 @@ from repoctx.scanner.graph_builder import GraphBuilder
 from repoctx.scanner.indexer import Indexer
 from repoctx.scanner.module_resolver import ModuleResolver
 from repoctx.scanner.relation_extractor import RelationExtractor
-from repoctx.utils.project import find_project_root
+from repoctx.utils.project import ProjectRootError, find_project_root
 
 
 class ScanEngine:
@@ -97,6 +97,10 @@ class ScanEngine:
 def scan_project(cwd: Path | str | None = None) -> Path:
     """High-level entry point to scan the current project.
 
+    If no `.repoctx.yaml` marker is found in any parent directory, the
+    current working directory is used as the project root and a config
+    template is generated automatically.
+
     Args:
         cwd: Starting directory for project root discovery.
             Defaults to current working directory.
@@ -105,11 +109,14 @@ def scan_project(cwd: Path | str | None = None) -> Path:
         Path to the .repograph/ directory.
 
     Raises:
-        ProjectRootError: If project root cannot be found.
         RuntimeError: If configuration is missing or invalid.
     """
     cwd = Path.cwd() if cwd is None else Path(cwd)
 
-    root = find_project_root(cwd)
+    try:
+        root = find_project_root(cwd)
+    except ProjectRootError:
+        root = cwd
+
     engine = ScanEngine(root)
     return engine.run()
