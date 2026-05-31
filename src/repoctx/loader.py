@@ -39,7 +39,7 @@ def load_config(project_root: Path | str | None = None) -> RepoCtxConfig:
     if not config_path.exists():
         raise ConfigNotFoundError(
             f"Configuration file not found: {config_path}\n"
-            f"Create it manually or run 'repoctx init'."
+            f"Run 'repoctx init' to initialize the project."
         )
 
     try:

@@ -18,6 +18,55 @@ def main() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Project initialization
+# ---------------------------------------------------------------------------
+
+@main.command()
+@click.option(
+    "--project-name",
+    "-n",
+    default="my-project",
+    help="Project name written to .repoctx.yaml (default: my-project).",
+)
+@click.option(
+    "--language",
+    "-l",
+    default="python",
+    help="Primary programming language (default: python).",
+)
+@click.option(
+    "--framework",
+    "-f",
+    default="django",
+    help="Primary framework (default: django).",
+)
+@click.option(
+    "--force",
+    is_flag=True,
+    help="Overwrite an existing .repoctx.yaml.",
+)
+def init(project_name: str, language: str, framework: str, force: bool) -> None:
+    """Initialize the current project for repoctx."""
+    from pathlib import Path
+
+    from repoctx.initialization import init_project
+
+    try:
+        created = init_project(
+            Path.cwd(),
+            project_name=project_name,
+            language=language,
+            framework=framework,
+            force=force,
+        )
+        click.echo("Initialized repoctx project.")
+        for p in created:
+            click.echo(f"  → {p}")
+    except Exception as e:
+        raise click.ClickException(str(e)) from e
+
+
+# ---------------------------------------------------------------------------
 # Semantic Memory
 # ---------------------------------------------------------------------------
 

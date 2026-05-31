@@ -336,7 +336,7 @@ records, invokes the provider, and emits tracking events.
 - [x] 新建 Card 数据模型（EntryCard, PathCard, SymbolCard, ContextPack, CardVersion）
 - [x] 新建 CLI 命令注册（digest-entry, stale, refresh, semantic-diff, export-context, task, guards, exp）
 - [x] 新建 `semantic_memory/engine.py`（stub 版本，打通 CLI → tracer → persistence 链路）
-- [ ] 新建 `.repograph/` 目录初始化逻辑（`repoctx init` 或自动初始化）
+- [x] 新建 `.repograph/` 目录初始化逻辑（`repoctx init` 或自动初始化）
 
 ### Phase 1：入口调用链追踪器 ✅ 已完成
 
@@ -358,12 +358,12 @@ records, invokes the provider, and emits tracking events.
 
 ### Phase 2：Card 生成器
 
-- [ ] `SemanticDigestEngine.digest()`：基于 CallTree 生成 Entry Card、Symbol Cards
-- [ ] LLM Prompt 模板：Entry Card prompt、Symbol Card prompt、Context Pack prompt
-- [ ] 代码 hash 计算（SHA256）
-- [ ] git commit 读取
-- [ ] Card 写入 `.repograph/semantic_memory/`
-- [ ] 测试：验证生成内容的语义质量
+- [x] `SemanticDigestEngine.digest()`：基于 CallTree 生成 Entry Card、Symbol Cards
+- [x] LLM Prompt 模板：Entry Card prompt、Symbol Card prompt、Context Pack prompt
+- [x] 代码 hash 计算（SHA256）
+- [x] git commit 读取
+- [x] Card 写入 `.repograph/semantic_memory/`
+- [x] 测试：验证生成内容的语义质量
 
 ### Phase 3：CLI 端到端
 

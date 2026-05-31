@@ -8,13 +8,13 @@ import string
 from pathlib import Path
 from typing import TypeVar
 
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 from repoctx.llm.client import LLMClient
 from repoctx.llm.errors import LLMParseError
 from repoctx.llm.tokenizer import TokenCounter
 
-T = TypeVar("T", bound=BaseModel)
+T = TypeVar("T")
 
 
 class PromptPipeline:
@@ -50,25 +50,25 @@ class PromptPipeline:
         messages.append({"role": "user", "content": prompt})
         return self.client.chat_completion_with_retry(messages)
 
-    def _extract_json(self, text: str) -> dict:
-        """Extract JSON object from model response text.
+    def _extract_json(self, text: str) -> dict | list:
+        """Extract JSON object or array from model response text.
 
         Handles markdown code blocks and plain JSON.
         """
         # Try markdown code block first
-        code_block = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+        code_block = re.search(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", text, re.DOTALL)
         if code_block:
             text = code_block.group(1)
         else:
-            # Try to find the first top-level JSON object
-            match = re.search(r"(\{.*\})", text, re.DOTALL)
+            # Try to find the first top-level JSON object or array
+            match = re.search(r"(\[.*\]|\{.*\})", text, re.DOTALL)
             if match:
                 text = match.group(1)
 
         try:
             result = json.loads(text)
-            if not isinstance(result, dict):
-                raise LLMParseError("Model response is not a JSON object")
+            if not isinstance(result, (dict, list)):
+                raise LLMParseError("Model response is not valid JSON")
             return result
         except json.JSONDecodeError as e:
             raise LLMParseError(f"Failed to parse JSON from model response: {e}") from e
@@ -97,10 +97,36 @@ class PromptPipeline:
             LLMError: If the API call fails.
         """
         prompt = self._assemble_prompt(template_path, variables)
+        return self.run_inline(prompt, output_model, system_prompt=system_prompt)
+
+    def run_inline(
+        self,
+        prompt: str,
+        output_model: type[T],
+        system_prompt: str | None = None,
+    ) -> T:
+        """Execute the pipeline with an inline prompt string.
+
+        Args:
+            prompt: Fully assembled prompt text.
+            output_model: Pydantic model class for validating the JSON output.
+            system_prompt: Optional system message.
+
+        Returns:
+            Validated instance of *output_model*.
+
+        Raises:
+            LLMTokenLimitError: If the prompt exceeds the token limit.
+            LLMParseError: If the response cannot be parsed as JSON.
+            LLMError: If the API call fails.
+        """
+        self.token_counter.check_limit(prompt, self.max_prompt_tokens)
         raw_response = self._call_model(prompt, system_prompt=system_prompt)
         parsed = self._extract_json(raw_response)
 
         try:
-            return output_model.model_validate(parsed)
+            if hasattr(output_model, "model_validate"):
+                return output_model.model_validate(parsed)  # type: ignore[return-value]
+            return TypeAdapter(output_model).validate_python(parsed)
         except Exception as e:
             raise LLMParseError(f"Model output failed validation: {e}") from e

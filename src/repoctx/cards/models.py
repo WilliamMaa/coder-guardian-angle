@@ -100,3 +100,12 @@ class ContextPack(BaseModel):
     important_deep_functions: list[DeepFunctionRef] = Field(default_factory=list)
     known_pitfalls: list[str] = Field(default_factory=list)
     related_tests: list[str] = Field(default_factory=list)
+    version: CardVersion = Field(
+        default_factory=lambda: CardVersion(
+            code_hash="",
+            dependency_hash="",
+            git_commit="",
+            generated_at="",
+            status="fresh",
+        )
+    )
