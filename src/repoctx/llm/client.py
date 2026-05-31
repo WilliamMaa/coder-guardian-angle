@@ -56,7 +56,7 @@ class LLMClient:
             LLMError: On other failures.
         """
         if not self.api_key:
-            raise LLMAuthError("API key is not configured. Set it in .repoctx.yaml or REPOCTX_TENCENT_API_KEY env var.")
+            raise LLMAuthError("API key is not configured. Set it in .repoctx.yaml or repoctx config.ini.")
 
         url = f"{self.base_url}/chat/completions"
         headers = {

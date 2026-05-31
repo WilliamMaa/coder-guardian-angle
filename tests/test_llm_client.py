@@ -380,18 +380,27 @@ class TestLLMCallLogger:
 # ---------------------------------------------------------------------------
 
 
+def _read_tool_config_ini() -> str | None:
+    """Read API key from repoctx tool root config.ini."""
+    from repoctx import llm as _llm_mod
+
+    tool_root = Path(_llm_mod.__file__).resolve().parent.parent.parent
+    ini_path = tool_root / "config.ini"
+    if not ini_path.exists():
+        return None
+    parser = configparser.ConfigParser()
+    parser.read(ini_path, encoding="utf-8")
+    return parser.get("DEFAULT", "tencent_cloud_llm_api_key", fallback=None)
+
+
 @pytest.mark.integration
 @pytest.mark.skipif(
-    not os.environ.get("REPOCTX_TENCENT_API_KEY"),
-    reason="REPOCTX_TENCENT_API_KEY not set",
+    not _read_tool_config_ini(),
+    reason="No API key in repoctx config.ini",
 )
 def test_real_api_call() -> None:
     """One real call to verify connectivity with Tencent MaaS."""
-    import os
-
-    config = ModelProviderConfig(
-        api_key=os.environ["REPOCTX_TENCENT_API_KEY"],
-    )
+    config = ModelProviderConfig(api_key=_read_tool_config_ini())
     client = LLMClient(config)
     result = client.chat_completion(
         messages=[

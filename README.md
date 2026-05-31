@@ -1,21 +1,33 @@
-# RepoCtx Guard
+# Repo Semantic Memory & Engineering Guard
 
-> AI-assisted Development Control Plane — 面向复杂研发项目的 AI 辅助开发控制层。
-
-RepoCtx Guard 不是 coding agent，也不是 IDE 插件。它是站在 AI coder 旁边的工程控制系统，负责约束它、提醒它、审查它、记录它。
-
-**核心目标：** 让 AI coder 在复杂项目和长周期实验中，不要乱改、不要乱飘、不要忘上下文、不要破坏老代码、不要让新代码变成未来屎山。
+> 一个给 AI coder 使用的项目语义记忆层——从入口函数消化代码，沉淀调用链语义，持续刷新项目理解，让不同 coder session 共享同一份稳定上下文，并基于这份语义记忆做结构、测试、老代码和实验守卫。
 
 ---
 
 ## 目录
 
+- [它解决什么问题](#它解决什么问题)
 - [安装](#安装)
-- [配置](#配置)
 - [快速开始](#快速开始)
+- [核心概念](#核心概念)
 - [CLI 命令参考](#cli-命令参考)
-- [工程宪法](#工程宪法)
+- [配置](#配置)
+- [数据模型](#数据模型)
 - [开发说明](#开发说明)
+
+---
+
+## 它解决什么问题
+
+在真实项目里使用 AI coder 时，反复遇到五类痛点：
+
+1. **每次从零理解项目** —— 每个新 session 都要重新读代码、重新建立上下文，浪费大量 token 和时间。
+2. **不同 session 理解不一致** —— 第一个对话说"不要改 credits 服务"，第二个对话根本不知道，直接改了。
+3. **新代码结构乱飘** —— AI 为了完成局部需求，把业务逻辑塞进 utils、绕过已有 service、重复实现已有能力。
+4. **对老代码缺少敬畏** —— 底层生产资产（如计费核心、鉴权核心）被随意修改，引发连锁故障。
+5. **实验异常被错误合理化** —— 长周期实验结果不符合预期时，AI 倾向于强行解释"理论就该差"，而不是排查实现 bug。
+
+**Repo Semantic Memory & Engineering Guard**（简称 `repoctx`）不是 coding agent，也不是 IDE 插件。它是放在 **coder 和项目之间的一层控制层**，把"读代码理解项目"变成一份**可复用、可版本化、可刷新的语义资产**。
 
 ---
 
@@ -25,35 +37,19 @@ RepoCtx Guard 不是 coding agent，也不是 IDE 插件。它是站在 AI coder
 
 - Python 3.10+
 - Git 2.30+
-- 网络环境可访问 `https://tokenhub.tencentmaas.com`
+- 可访问 Tencent MaaS API（`https://tokenhub.tencentmaas.com`）或兼容 OpenAI 协议的端点
 
-### 1. 克隆仓库并进入项目目录
+### 安装
 
 ```bash
 git clone <repo-url> repoctx-guard
 cd repoctx-guard
-```
-
-### 2. 创建并激活 Python 虚拟环境
-
-```bash
-# 创建虚拟环境
 python3 -m venv .venv
-
-# 激活虚拟环境（Linux / macOS）
-source .venv/bin/activate
-
-# 激活虚拟环境（Windows）
-# .venv\Scripts\activate
-```
-
-### 3. 安装项目及其依赖
-
-```bash
+source .venv/bin/activate  # Linux/macOS
 pip install -e .
 ```
 
-安装完成后，全局可用 `repoctx` 命令：
+验证安装：
 
 ```bash
 repoctx --help
@@ -61,52 +57,182 @@ repoctx --help
 
 ---
 
-## 配置
+## 快速开始
 
-### 第一步：在项目根目录放置 API Key
+### 第一步：初始化项目
 
-系统支持三种方式配置腾讯混元 MaaS API Key，优先级从高到低：
+进入你的项目根目录，运行：
+
+```bash
+cd /path/to/your-project
+repoctx init
+```
+
+这会创建：
+- `.repoctx.yaml` —— 项目标记与配置文件
+- `.repograph/` —— 语义记忆存储目录，包含：
+  - `semantic_memory/{entries,paths,symbols,flows,context_packs,versions}/`
+  - `tasks/` —— 任务工作区
+  - `guards/` —— 工程守卫规则
+  - `legacy/` —— 老代码保护与复用层
+  - `experiments/` —— 实验记忆
+  - `reports/` —— 检查报告
+
+你可以自定义项目元数据：
+
+```bash
+repoctx init --project-name my-api --language python --framework django
+```
+
+### 第二步：配置 API Key
+
+`repoctx` 使用 LLM 生成语义卡片，需要配置 API Key。支持两种方式：
 
 | 优先级 | 来源 | 说明 |
 |--------|------|------|
-| 1 | `.repoctx.yaml` | `model_provider.api_key` 字段 |
-| 2 | 环境变量 | `export REPOCTX_TENCENT_API_KEY="your-key"` |
-| 3 | `config.ini` | `[DEFAULT]` 节下的 `tencent_cloud_llm_api_key` |
+| 1 | `.repoctx.yaml` | 目标项目下的 `model_provider.api_key` 字段 |
+| 2 | `config.ini` | repoctx 工具根目录下的 `[DEFAULT] tencent_cloud_llm_api_key` |
 
-**推荐方式：在项目根目录创建 `config.ini`**
+**方式 A：按项目配置（推荐）**
+
+在目标项目的 `.repoctx.yaml` 中设置：
+
+```yaml
+model_provider:
+  api_key: "sk-xxxxxxxxxxxxxxxx"
+```
+
+**方式 B：全局配置**
+
+在 repoctx 工具根目录创建 `config.ini`：
 
 ```ini
 [DEFAULT]
 tencent_cloud_llm_api_key = sk-xxxxxxxxxxxxxxxx
 ```
 
-> ⚠️ **安全提醒**：`config.ini` 和 `.repoctx.yaml` 必须加入 `.gitignore`，禁止提交到版本仓库。
+全局配置一次，服务器上所有项目共用。如果某个项目又在 `.repoctx.yaml` 中配置了 key，则优先使用项目本地的 key。
 
-### 第二步：扫描你的项目
+> ⚠️ **安全提醒**：`.repoctx.yaml` 和 `config.ini` 必须加入 `.gitignore`，禁止提交到版本仓库。
 
-进入你的项目根目录，运行：
+### 第三步：消化一个入口函数
 
 ```bash
-cd /path/to/your-project
-repoctx scan
+repoctx digest-entry backend/free_call/views.py --only start_free_call --depth 3
 ```
 
-首次扫描会自动生成：
-- `.repoctx.yaml` —— 项目配置文件
-- `.repograph/` —— 知识图谱索引目录
-  - `index.json` —— 项目级索引
-  - `modules/*.json` —— 模块索引
-  - `entities/*.json` —— 实体索引
-  - `edges/*.json` —— 关系索引
-  - `protected_core.yaml` —— 受保护核心模板
-  - `reusable_capabilities.yaml` —— 可复用能力模板
+`digest-entry` 会：
+1. **Tracer** 递归追踪 `start_free_call` 的调用链（深度 3）
+2. **LLM** 分析源代码和调用关系，生成语义卡片：
+   - **EntryCard** —— 入口函数的业务职责和主调用链
+   - **SymbolCards** —— 深层函数的语义角色、副作用、复用指导
+   - **ContextPack** —— 给 coder 直接读的压缩上下文（流程摘要、关键路径、陷阱提示）
+3. **持久化** 到 `.repograph/semantic_memory/`
 
-### 第三步：编辑项目配置（可选）
+输出示例：
 
-打开生成的 `.repoctx.yaml`，确认或补充项目信息：
+```
+Digest complete: 3 cards generated.
+  → /path/to/your-project/.repograph/semantic_memory/entries/entry.backend.free_call.views.start_free_call.yaml
+  → /path/to/your-project/.repograph/semantic_memory/symbols/symbol.backend.free_call.services.start_call.yaml
+  → /path/to/your-project/.repograph/semantic_memory/context_packs/context.start_free_call.yaml
+```
+
+你可以读取生成的 ContextPack，它长这样：
+
+```markdown
+# Context Pack: Free Call Flow
+
+## Flow Summary
+Free Call starts from the frontend dial action and eventually invokes
+the backend call start endpoint. The flow resolves auth/session state,
+checks call eligibility, interacts with credit services, creates call
+records, invokes the provider, and emits tracking events.
+
+## Main Entrypoints
+- `start_free_call`
+
+## Main Start Path
+`DialPad.onDialClick` → `useAuthGuard` → `freeCallApi.startCall`
+→ `start_free_call` → `free_call.services.start_call`
+→ `credits.services.get_available_balance` → `call_provider.start_call`
+→ `track_free_call_event`
+
+## Important Deep Functions
+- `credits.services.get_available_balance`: public credit read surface.
+- `credits.services.consume_credits`: state mutation core, used by multiple flows.
+
+## Known Pitfalls
+- Do not duplicate credit balance logic.
+- Auth timing changes usually belong near frontend action/auth guard.
+```
+
+---
+
+## 核心概念
+
+| 概念 | 说明 |
+|------|------|
+| **Semantic Card** | 语义资产卡片，描述代码的语义角色而非结构。类型：entry / path / symbol / flow。 |
+| **Entry Card** | 描述一个入口函数的业务职责、主调用链、业务角色。 |
+| **Symbol Card** | 描述深层函数/服务/模型的项目语义角色、副作用、复用指导。 |
+| **Context Pack** | 给 coder 直接读的压缩上下文文档，汇总入口、路径、重要函数、陷阱。 |
+| **Call Graph** | 从入口函数递归追踪调用链得到的树状结构。 |
+| **Task Workspace** | 单个需求的共享任务理解层，包含 accepted_understanding、change_plan、frozen_assumptions 等。 |
+
+---
+
+## CLI 命令参考
+
+### Semantic Memory（语义记忆）
+
+| 命令 | 状态 | 说明 |
+|------|------|------|
+| `repoctx init` | ✅ 可用 | 初始化项目，创建 `.repoctx.yaml` 和 `.repograph/` 目录树 |
+| `repoctx digest-entry <file>` | ✅ 可用 | 入口语义消化，生成 Entry Card、Symbol Cards、Context Pack |
+| `repoctx stale` | ⏳ 待开发 | 检查哪些语义资产已过期 |
+| `repoctx refresh --affected` | ⏳ 待开发 | 增量刷新过期 card |
+| `repoctx semantic-diff --since main` | ⏳ 待开发 | 总结代码改动带来的业务语义变化 |
+| `repoctx export-context <flow>` | ⏳ 待开发 | 导出 context pack 为 markdown |
+
+### Task Workspace（任务工作区）
+
+| 命令 | 状态 | 说明 |
+|------|------|------|
+| `repoctx task start "name" --entry <file::sym>` | ⏳ 待开发 | 创建任务工作区，冻结理解 |
+| `repoctx task export <id>` | ⏳ 待开发 | 导出任务上下文给 coder |
+| `repoctx task status <id>` | ⏳ 待开发 | 查看任务状态 |
+| `repoctx validate --task <id>` | ⏳ 待开发 | 验证 diff 是否违背任务约束 |
+
+### Guards（工程守卫）
+
+| 命令 | 状态 | 说明 |
+|------|------|------|
+| `repoctx status` | ⏳ 待开发 | working tree 健康度 |
+| `repoctx structure-check` | ⏳ 待开发 | 新代码结构检查 |
+| `repoctx test-impact --task <id>` | ⏳ 待开发 | 测试影响分析 |
+| `repoctx legacy-check` | ⏳ 待开发 | 老代码保护检查 |
+| `repoctx commit-check` | ⏳ 待开发 | commit 前统一 gate |
+
+### Experiment Agent（实验诊断）
+
+| 命令 | 状态 | 说明 |
+|------|------|------|
+| `repoctx exp init` | ⏳ 待开发 | 初始化实验工作区 |
+| `repoctx exp check --config <cfg>` | ⏳ 待开发 | 实验前检查 |
+| `repoctx exp run --name <n> --cmd "cmd"` | ⏳ 待开发 | 运行实验 |
+| `repoctx exp summarize <run_id>` | ⏳ 待开发 | 实验总结 |
+| `repoctx exp diagnose <run_id>` | ⏳ 待开发 | 双轨诊断（同时怀疑理论和实现） |
+
+---
+
+## 配置
+
+`.repoctx.yaml` 示例：
 
 ```yaml
-project_name: your-project
+project_name: my-project
+version: "0.1.0"
 language: python
 framework: django
 scan_paths:
@@ -116,6 +242,7 @@ exclude_paths:
   - ".venv"
   - "node_modules"
   - "__pycache__"
+  - ".repograph"
 modules:
   - name: backend
     path: backend
@@ -123,302 +250,39 @@ modules:
   - name: frontend
     path: frontend
     type: frontend
+model_provider:
+  api_key: null
+  base_url: "https://tokenhub.tencentmaas.com/v1"
+  model: "deepseek-v4-flash-202605"
+  timeout: 60
 ```
 
-> `modules` 字段现在**可选**。如果留空（`modules: []`）或直接省略，系统会根据 `framework` 自动发现模块：
-> - `django` —— 自动识别含 `models.py` / `views.py` / `apps.py` 的 Django app
-> - `vue` / `nuxt` —— 自动识别 `pages/`、`components/`、`composables/`、`stores/`
-> - `fastapi` / `flask` —— 自动识别 `api/`、`models/`、`services/`
-> - `generic` —— 自动识别 `src/` 或顶层源码目录
->
-> 显式定义的 `modules` 会**覆盖**自动发现结果。建议先运行一次 `repoctx scan` 查看自动发现的结果，再决定是否手动固定。
-
-编辑完成后，重新扫描：
-
-```bash
-repoctx scan
-```
-
-### 第四步：审核自动生成的受保护核心与可复用能力
-
-扫描完成后，系统会**自动分析**代码结构，为你生成候选的受保护核心和可复用能力，并进入交互式审核：
-
-```
-[scan] Found 3 protected core candidates:
-
-  1. backend/auth/views.py
-     Reason: Path contains sensitive keywords: ['auth']
-     [y]es / [n]o / [e]dit > y
-
-  2. backend/credits/services.py
-     Reason: High fan-in: imported by 4 internal files
-     [y]es / [n]o / [e]dit > y
-
-[scan] Found 5 reusable capability candidates:
-
-  1. get_available_balance
-     File: backend/credits/services.py
-     [y]es / [n]o / [e]dit > y
-```
-
-- **`y`** —— 确认，写入正式的 `.repograph/protected_core.yaml` 和 `.repograph/reusable_capabilities.yaml`
-- **`n`** —— 丢弃该候选
-- **`e`** —— 编辑描述后确认
-
-如果你是在 CI / 自动化脚本中运行，不想交互，可以使用 `--auto-approve`：
-
-```bash
-repoctx scan --auto-approve
-```
-
-这会直接接受所有候选，适合首次初始化或定期重建索引。
-
-如果你错过了交互审核，未确认的候选会被写入 `.repograph/review_protected_core.yaml` 和 `.repograph/review_capabilities.yaml`，你可以手动编辑后再重新扫描。
-
----
-
-#### 手动微调（可选）
-
-自动分析基于启发式规则（路径关键词、fan-in、跨模块调用等），对于非常核心的业务，建议你在自动生成的文件基础上手动补充或调整。例如：
-
-**`.repograph/protected_core.yaml`**
+`model_provider` 配置兼容 OpenAI 协议，你可以替换为其他端点：
 
 ```yaml
-version: "1.0"
-cores:
-  - id: core-auth
-    name: auth/session/login
-    type: service
-    files:
-      - backend/auth/*.py
-    modules:
-      - auth
-    used_by:
-      - free_call
-      - subscription
-    description: Authentication and session management core. Do not modify internals.
-    block_policy:
-      default_action: block
-      required_explanations:
-        - Why core change is necessary
-      required_evidence:
-        - Affected flows list
-      require_regression_tests: true
-      require_rollback_plan: true
+model_provider:
+  base_url: "https://api.openai.com/v1"
+  model: "gpt-4o"
 ```
 
-**`.repograph/reusable_capabilities.yaml`**
+---
+
+## 数据模型
+
+所有语义资产以 YAML 形式存储在 `.repograph/semantic_memory/` 下，核心字段包括：
 
 ```yaml
-version: "1.0"
-capabilities:
-  - id: cap-balance-check
-    name: credit balance check
-    description: Get available credit balance for a user.
-    module_id: credits
-    entry_points:
-      - file_path: backend/credits/services.py
-        function_name: get_available_balance
-        signature: "def get_available_balance(user_id: str) -> int"
-        usage_example: "balance = get_available_balance(user_id)"
-    use_cases:
-      - Before initiating a paid call
-    constraints:
-      - Do not modify this function for domain-specific logic
+card_type: entry | path | symbol | flow
+id: "entry.free_call.start_free_call"
+version:
+  code_hash: "sha256 of source file"
+  dependency_hash: "sha256 of downstream symbols"
+  git_commit: "9f1a2c"
+  generated_at: "2026-05-31T12:00:00Z"
+  status: fresh | stale | deprecated
 ```
 
----
-
-## 快速开始
-
-### 1. 生成任务上下文
-
-#### 方式 A：语义驱动（适合有明确任务描述时）
-
-```bash
-repoctx context "change free call login timing"
-```
-
-输出示例：
-
-```
-============================================================
-RepoCtx Guard — Task Context Report
-============================================================
-
-Related Modules:
-  • backend
-  • frontend
-
-Key Files:
-  • backend/auth/views.py
-  • frontend/pages/free-call.vue
-
-Reusable Capabilities:
-  • credit balance check
-
-Protected Cores (DO NOT MODIFY):
-  ⚠ auth/session/login
-
-Risk Points:
-  ! Do not modify GA4 event name
-
-Suggested Tests:
-  • test_login_flow
-
-============================================================
-```
-
-支持 JSON 输出：
-
-```bash
-repoctx context "change free call login timing" --format json
-```
-
-#### 方式 B：入口驱动（适合"拿到一个文件，不知道会影响什么"）
-
-```bash
-repoctx context --from-file backend/freecall/views.py
-```
-
-输出示例：
-
-```
-============================================================
-RepoCtx Guard — Entry Context Report
-============================================================
-
-Entry File: backend/freecall/views.py
-Entry Module: freecall
-
-----------------------------------------
-Upstream — Who depends on this file
-----------------------------------------
-  • frontend/pages/free-call.vue [frontend] (depth 1)
-
-----------------------------------------
-Downstream — What this file depends on
-----------------------------------------
-  • backend/credits/services.py [credits] (depth 1)
-  • backend/auth/views.py [auth] (depth 1)
-
-----------------------------------------
-Modules Involved
-----------------------------------------
-  • auth
-  • credits
-  • freecall
-  • frontend
-
-----------------------------------------
-Protected Cores in Impact Radius
-----------------------------------------
-  ⚠ backend/auth/views.py
-    Files: backend/auth/views.py
-    Path contains strong keywords: ['auth']
-
-----------------------------------------
-Reusable Capabilities Available
-----------------------------------------
-  • get_balance (backend/credits/services.py) — def get_balance(user_id: str) -> int
-
-----------------------------------------
-Risk Summary
-----------------------------------------
-  ! Entry file touches 1 protected core(s): backend/auth/views.py
-
-============================================================
-```
-
-> 入口驱动模式**不调用 LLM**，完全基于已扫描的知识图谱，速度快、成本低、100% 准确。适合 CI 集成或快速探查影响面。
-
-写入文件（不打印到终端）：
-
-```bash
-repoctx context --from-file backend/freecall/views.py -o impact_report.md
-```
-
-### 2. 查看当前改动健康度
-
-```bash
-repoctx status
-```
-
-### 3. Commit 前统一检查
-
-```bash
-repoctx commit-check
-```
-
-### 4. 分析测试影响
-
-```bash
-repoctx test-impact
-```
-
-### 5. 运行实验（实验模块）
-
-```bash
-repoctx exp run --name exp_v1 --cmd "python train.py --epochs 100"
-repoctx exp summarize --run exp_v1
-```
-
----
-
-## CLI 命令参考
-
-| 命令 | 状态 | 说明 |
-|------|------|------|
-| `repoctx scan` | ✅ 可用 | 扫描项目，生成知识图谱索引 |
-| `repoctx context "<task>"` | ✅ 可用 | 根据任务描述生成 AI Coder 上下文 |
-| `repoctx status` | 🚧 占位 | 查看当前 working tree 健康度 |
-| `repoctx commit-check` | 🚧 占位 | Commit 前统一 Gate 检查 |
-| `repoctx test-impact` | 🚧 占位 | 分析测试影响与缺口 |
-| `repoctx exp run` | 🚧 占位 | 运行实验并监控 |
-| `repoctx exp summarize` | 🚧 占位 | 总结实验结果与双轨诊断 |
-
-> 标注为 🚧 的命令已注册 CLI 框架，内部逻辑正在逐步开发中。
-
-### `repoctx scan` 参数
-
-```bash
-repoctx scan [OPTIONS]
-
-Options:
-  --auto-approve  Auto-accept all discovered protected cores and capabilities
-                  without interactive review.
-  --help          Show this message and exit.
-```
-
-### `repoctx context` 参数
-
-```bash
-repoctx context [OPTIONS] [TASK]
-
-Options:
-  --from-file TEXT      Analyze a specific entry file instead of using a
-                        natural-language task.
-  --max-depth INTEGER   Maximum dependency hops for --from-file (default: 2).
-  --max-tokens INTEGER  Maximum context length in tokens for LLM-based
-                        analysis (default: 3000).
-  -o, --output PATH     Write report to a file instead of stdout.
-  --format [text|json]  Output format (default: text).
-  --help                Show this message and exit.
-```
-
----
-
-## 工程宪法
-
-系统所有行为服从以下七条原则：
-
-1. **AI must not work without project context.** AI 不能在不知道项目上下文的情况下乱改。
-2. **New code must not become future legacy debt.** 新代码不能从诞生开始就变成未来屎山。
-3. **Every behavior change needs protection.** 任何行为变化都必须有测试、影响分析或明确确认。
-4. **Legacy core is production asset, not editable code.** 老项目底层代码是生产资产，不是普通可编辑实现。
-5. **Reuse public surfaces, not internal guts.** 复用已有公开能力，不要为了局部需求修改底层实现。
-6. **Large changes must be split.** 改动过大必须提醒 commit / split。
-7. **Unexpected experimental results must not be automatically rationalized.** 实验结果违反预期时，必须同时怀疑理论和怀疑实现。
+完整模型定义见 `src/repoctx/cards/models.py`。
 
 ---
 
@@ -429,37 +293,35 @@ Options:
 ```
 repoctx-guard/
 ├── src/repoctx/
-│   ├── cli.py                 # CLI 入口
-│   ├── config.py              # 配置占位
-│   ├── context_router.py      # Context Router 核心
-│   ├── loader.py              # 配置加载与模板生成
-│   ├── models/                # Pydantic 数据模型
-│   │   ├── config.py
-│   │   ├── capability.py
-│   │   ├── protected_core.py
-│   │   └── rules.py
-│   ├── scanner/               # 知识图谱扫描引擎
-│   │   ├── engine.py
-│   │   ├── file_scanner.py
-│   │   ├── module_resolver.py
-│   │   ├── entity_extractor.py
-│   │   ├── relation_extractor.py
-│   │   ├── graph_builder.py
-│   │   └── indexer.py
-│   ├── llm/                   # LLM 客户端与 Prompt 流水线
+│   ├── cli.py                      # CLI 入口（Click）
+│   ├── initialization.py           # repoctx init 逻辑
+│   ├── loader.py                   # 配置加载
+│   ├── cards/                      # Card 数据模型
+│   │   └── models.py
+│   ├── llm/                        # LLM 客户端与 Prompt 流水线
 │   │   ├── client.py
 │   │   ├── pipeline.py
 │   │   ├── tokenizer.py
 │   │   ├── logger.py
 │   │   └── errors.py
-│   ├── prompts/               # Prompt 模板
-│   │   ├── context_router.txt
-│   │   ├── structure_guard.txt
-│   │   └── dual_track_diagnosis.txt
-│   └── utils/                 # 工具函数
+│   ├── semantic_memory/            # 语义记忆引擎（Phase 2）
+│   │   ├── engine.py               # SemanticDigestEngine
+│   │   ├── prompt_builder.py       # Prompt 组装
+│   │   └── versioning.py           # Hash / Git 工具
+│   ├── tracer/                     # 调用链追踪器（Phase 1）
+│   │   ├── base.py
+│   │   ├── factory.py
+│   │   └── python/                 # Python 专用追踪器
+│   │       ├── import_resolver.py
+│   │       ├── call_extractor.py
+│   │       ├── module_resolver.py
+│   │       └── tracer.py
+│   ├── models/                     # 配置模型
+│   │   └── config.py
+│   └── utils/                      # 工具函数
 │       ├── yaml_io.py
 │       └── project.py
-├── tests/                     # 测试套件
+├── tests/                          # 测试套件（pytest）
 ├── pyproject.toml
 ├── requirements.txt
 ├── requirements-dev.txt
@@ -472,12 +334,16 @@ repoctx-guard/
 # 运行全部测试
 pytest
 
-# 运行特定测试文件
-pytest tests/test_scanner.py -v
+# 运行特定模块
+pytest tests/test_tracer.py -v
+pytest tests/test_semantic_memory.py -v
+pytest tests/test_initialization.py -v
 
 # 运行集成测试（需要配置真实 API Key）
-pytest tests/test_llm_client.py -v -m integration
+pytest tests/test_llm_client.py -v -k "not test_real_api_call"
 ```
+
+当前测试状态：**109 passed, 1 skipped**
 
 ### 代码规范
 

@@ -38,18 +38,7 @@ class TestRepoCtxConfig:
         assert ".git" in cfg.exclude_paths
         assert "node_modules" in cfg.exclude_paths
 
-    def test_api_key_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("REPOCTX_TENCENT_API_KEY", "env-key-123")
-        cfg = RepoCtxConfig(
-            project_name="x",
-            language="python",
-            framework="django",
-            model_provider=ModelProviderConfig(api_key="file-key-456"),
-        )
-        assert cfg.get_api_key() == "env-key-123"
-
-    def test_api_key_fallback_to_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("REPOCTX_TENCENT_API_KEY", raising=False)
+    def test_api_key_from_config(self) -> None:
         cfg = RepoCtxConfig(
             project_name="x",
             language="python",
@@ -179,29 +168,23 @@ class TestLoadConfig:
         cfg = load_config()
         assert cfg.project_name == "auto"
 
-    def test_load_api_key_from_config_ini(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.delenv("REPOCTX_TENCENT_API_KEY", raising=False)
+    def test_load_api_key_from_config_ini(self, tmp_path: Path) -> None:
         dump_yaml(
             {"project_name": "ini", "language": "python", "framework": "django"},
             tmp_path / ".repoctx.yaml",
         )
-        (tmp_path / "config.ini").write_text(
-            "[DEFAULT]\ntencent_cloud_llm_api_key = ini-key-123\n"
-        )
-        cfg = load_config(tmp_path)
-        assert cfg.get_api_key() == "ini-key-123"
+        # config.ini lives in the repoctx tool root, not the target project root.
+        from repoctx import loader
 
-    def test_config_ini_fallback_only_when_no_other_key(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        # env var takes precedence over config.ini
-        monkeypatch.setenv("REPOCTX_TENCENT_API_KEY", "env-key")
-        dump_yaml(
-            {"project_name": "ini", "language": "python", "framework": "django"},
-            tmp_path / ".repoctx.yaml",
-        )
-        (tmp_path / "config.ini").write_text(
-            "[DEFAULT]\ntencent_cloud_llm_api_key = ini-key-123\n"
-        )
-        cfg = load_config(tmp_path)
-        assert cfg.get_api_key() == "env-key"
+        tool_root = Path(loader.__file__).resolve().parent.parent.parent
+        ini_path = tool_root / "config.ini"
+        original = ini_path.read_text(encoding="utf-8") if ini_path.exists() else None
+        ini_path.write_text("[DEFAULT]\ntencent_cloud_llm_api_key = ini-key-123\n")
+        try:
+            cfg = load_config(tmp_path)
+            assert cfg.get_api_key() == "ini-key-123"
+        finally:
+            if original is not None:
+                ini_path.write_text(original, encoding="utf-8")
+            elif ini_path.exists():
+                ini_path.unlink()

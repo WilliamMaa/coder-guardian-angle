@@ -169,8 +169,7 @@ class SemanticDigestEngine:
         except Exception as e:
             raise RuntimeError(
                 "LLM client not configured. "
-                "Run 'repoctx init' and set an API key in .repoctx.yaml or "
-                "the REPOCTX_TENCENT_API_KEY environment variable."
+                "Set an API key in .repoctx.yaml or repoctx config.ini."
             ) from e
 
         return LLMClient(cfg.model_provider, api_key=cfg.get_api_key())

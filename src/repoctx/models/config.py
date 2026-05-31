@@ -21,7 +21,7 @@ class ModelProviderConfig(BaseModel):
 
     api_key: str | None = Field(
         default=None,
-        description="API key for the model provider. Can be overridden by REPOCTX_TENCENT_API_KEY env var.",
+        description="API key for the model provider.",
     )
     base_url: str = Field(
         default="https://tokenhub.tencentmaas.com/v1",
@@ -95,12 +95,7 @@ class RepoCtxConfig(BaseModel):
         raise ValueError("Expected string or list of strings")
 
     def get_api_key(self) -> str | None:
-        """Return API key from env var or config file, preferring env var."""
-        import os
-
-        env_key = os.environ.get("REPOCTX_TENCENT_API_KEY")
-        if env_key:
-            return env_key
+        """Return API key from config file."""
         return self.model_provider.api_key
 
     def resolved_experiment_dir(self, project_root: Path) -> Path:

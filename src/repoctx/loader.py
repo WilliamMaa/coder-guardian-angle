@@ -52,9 +52,10 @@ def load_config(project_root: Path | str | None = None) -> RepoCtxConfig:
 
     cfg = RepoCtxConfig.model_validate(raw)
 
-    # Fallback: read API key from config.ini if still not configured
+    # If no API key in .repoctx.yaml, read from repoctx tool root config.ini
     if not cfg.get_api_key():
-        ini_path = root / "config.ini"
+        tool_root = Path(__file__).resolve().parent.parent.parent
+        ini_path = tool_root / "config.ini"
         if ini_path.exists():
             import configparser
 
