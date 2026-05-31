@@ -50,11 +50,24 @@ class PromptPipeline:
         messages.append({"role": "user", "content": prompt})
         return self.client.chat_completion_with_retry(messages)
 
+    @staticmethod
+    def _repair_json(text: str) -> str:
+        """Fix common JSON formatting errors produced by LLMs.
+
+        Repairs trailing commas before ``}`` or ``]``.
+        """
+        # Remove trailing commas inside objects and arrays
+        text = re.sub(r",(\s*[}\]])", r"\1", text)
+        return text
+
     def _extract_json(self, text: str) -> dict | list:
         """Extract JSON object or array from model response text.
 
-        Handles markdown code blocks and plain JSON.
+        Handles markdown code blocks and plain JSON.  Automatically repairs
+        common LLM JSON mistakes (e.g. trailing commas) before giving up.
         """
+        original = text
+
         # Try markdown code block first
         code_block = re.search(r"```(?:json)?\s*(\[.*?\]|\{.*?\})\s*```", text, re.DOTALL)
         if code_block:
@@ -65,13 +78,29 @@ class PromptPipeline:
             if match:
                 text = match.group(1)
 
+        # Attempt 1: raw text
         try:
             result = json.loads(text)
-            if not isinstance(result, (dict, list)):
-                raise LLMParseError("Model response is not valid JSON")
-            return result
-        except json.JSONDecodeError as e:
-            raise LLMParseError(f"Failed to parse JSON from model response: {e}") from e
+            if isinstance(result, (dict, list)):
+                return result
+        except json.JSONDecodeError:
+            pass
+
+        # Attempt 2: repair common LLM JSON mistakes
+        repaired = self._repair_json(text)
+        try:
+            result = json.loads(repaired)
+            if isinstance(result, (dict, list)):
+                return result
+        except json.JSONDecodeError:
+            pass
+
+        # Give up — include the first 800 chars of the raw response for debugging
+        snippet = original[:800].replace("\n", " ")
+        raise LLMParseError(
+            f"Failed to parse JSON from model response. "
+            f"Response snippet (first 800 chars): {snippet!r}"
+        )
 
     def run(
         self,

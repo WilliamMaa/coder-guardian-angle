@@ -235,9 +235,9 @@ records, invokes the provider, and emits tracking events.
 
 | 命令 | 状态 | 说明 |
 |------|------|------|
-| `repoctx digest-entry <file>` | 🚧 开发中 | 入口语义消化，生成 card |
-| `repoctx stale` | ⏳ 待开发 | 检查过期语义资产 |
-| `repoctx refresh --affected` | ⏳ 待开发 | 增量刷新 card |
+| `repoctx digest-entry <file>` | ✅ 已完成 | 入口语义消化，生成 card |
+| `repoctx stale` | ✅ 已完成 | 检查过期语义资产 |
+| `repoctx refresh --affected` | ✅ 已完成 | 增量刷新 card |
 | `repoctx semantic-diff --since main` | ⏳ 待开发 | 语义变化总结 |
 | `repoctx export-context <flow>` | ⏳ 待开发 | 导出 context pack |
 
@@ -245,10 +245,11 @@ records, invokes the provider, and emits tracking events.
 
 | 命令 | 状态 | 说明 |
 |------|------|------|
-| `repoctx task start "name" --entry <file::sym>` | ⏳ 待开发 | 创建任务工作区 |
-| `repoctx task export <id>` | ⏳ 待开发 | 导出任务上下文 |
-| `repoctx task status <id>` | ⏳ 待开发 | 查看任务状态 |
-| `repoctx validate --task <id>` | ⏳ 待开发 | 验证 diff 是否违背任务 |
+| `repoctx task start "name" --entry <file::sym>` | ✅ 已完成 | 创建任务工作区 |
+| `repoctx task list` | ✅ 已完成 | 列出所有任务工作区 |
+| `repoctx task export <id>` | ✅ 已完成 | 导出任务上下文 |
+| `repoctx task status <id>` | ✅ 已完成 | 查看任务状态 |
+| `repoctx task validate <id>` | ✅ 已完成 | 验证 diff 是否违背任务约束 |
 
 ### 4.3 Guards
 
@@ -363,27 +364,39 @@ records, invokes the provider, and emits tracking events.
 - [x] 代码 hash 计算（SHA256）
 - [x] git commit 读取
 - [x] Card 写入 `.repograph/semantic_memory/`
+- [x] 增量持久化：失败不丢前面已生成的 card
+- [x] JSON 解析容错（自动修复 trailing comma）
+- [x] 智能跳过：code_hash 未变则跳过 LLM，节省 token
+- [x] `--force` 选项强制重新生成
+- [x] `repoctx list` 查看所有 cards
+- [x] `repoctx stale` 检测 code_hash 变化的 cards
+- [x] `repoctx delete-card <id>` 删除指定 card
 - [x] 测试：验证生成内容的语义质量
 
-### Phase 3：CLI 端到端
+### Phase 3：CLI 端到端 ✅ 已完成
 
-- [ ] `repoctx digest-entry` 打通 tracer → engine → persistence 全链路
-- [ ] 支持 `--only` 和 `--depth`
-- [ ] 支持 `--output-dir`
-- [ ] 端到端测试
+- [x] `repoctx digest-entry` 打通 tracer → engine → persistence 全链路
+- [x] 支持 `--only` 和 `--depth`
+- [x] 支持 `--output-dir`
+- [x] 端到端测试
 
-### Phase 4：版本化与刷新
+### Phase 4：版本化与刷新 ✅ 已完成
 
-- [ ] `repoctx stale`：检测 code_hash 变化的 card
-- [ ] `repoctx refresh --affected`：增量刷新（Local / Path / Context Pack 三级）
-- [ ] Card 状态机：fresh → stale → deprecated
+- [x] `repoctx stale`：检测 code_hash 变化的 card
+- [x] `repoctx refresh --affected`：增量刷新过期 card
+  - stale entry → 直接重新 digest
+  - stale symbol → 找到引用它的 entries，重新 digest
+- [x] Card 状态机：version.status 字段已定义（fresh / stale / deprecated）
 
-### Phase 5：Task Workspace
+### Phase 5：Task Workspace ✅ 已完成
 
-- [ ] `repoctx task start`：创建任务目录结构
-- [ ] `accepted_understanding.md` 生成
-- [ ] `repoctx task export`：导出统一上下文
-- [ ] `repoctx validate --task`：检查 diff 是否违背任务约束
+- [x] `repoctx task start`：创建任务目录结构
+- [x] `accepted_understanding.md` 生成（LLM 驱动，失败回退到模板）
+- [x] `repoctx task list`：列出所有任务工作区
+- [x] `repoctx task export`：导出统一上下文 markdown
+- [x] `repoctx task status`：查看任务状态与文件列表
+- [x] `repoctx task validate`：检查 diff 是否违背 out_of_scope / frozen_assumptions
+- [x] 测试：20 个测试全部通过
 
 ### Phase 6：Guards
 
@@ -437,8 +450,11 @@ records, invokes the provider, and emits tracking events.
 | `src/repoctx/tracer/python/tracer.py` | ✅ 完成 | `PythonTracer`（继承 `BaseTracer`） |
 | `src/repoctx/tracer/__init__.py` | ✅ 完成 | 空 |
 | `src/repoctx/semantic_memory/__init__.py` | ✅ 完成 | 空 |
-| `src/repoctx/semantic_memory/engine.py` | ✅ stub | 打通 CLI → tracer → persistence 链路（card 生成待 Phase 2） |
-| `src/repoctx/cli.py` | ✅ 重写完成 | 新命令体系已注册，digest-entry 已接入 engine |
+| `src/repoctx/semantic_memory/engine.py` | ✅ 完成 | SemanticDigestEngine，Entry/Symbol/ContextPack 生成与持久化 |
+| `src/repoctx/semantic_memory/refresh_engine.py` | ✅ 完成 | RefreshEngine，stale 检测与 affected 增量刷新 |
+| `src/repoctx/semantic_memory/prompt_builder.py` | ✅ 完成 | Entry/Symbol/ContextPack prompt 组装 |
+| `src/repoctx/task_workspace/engine.py` | ✅ 完成 | TaskWorkspace，start/export/validate |
+| `src/repoctx/cli.py` | ✅ 重写完成 | 新命令体系已注册，digest-entry / task / guards 占位 |
 | `tests/test_tracer.py` | ✅ 完成 | 22 个测试全部通过 |
 
 ### 8.3 已删除的旧组件
@@ -462,11 +478,16 @@ records, invokes the provider, and emits tracking events.
 
 | 测试文件 | 状态 | 说明 |
 |----------|------|------|
-| `tests/test_cli_exists.py` | ✅ 通过 | 验证新 CLI 命令注册（16 个测试） |
+| `tests/test_cli_exists.py` | ✅ 通过 | 验证新 CLI 命令注册（18 个测试） |
 | `tests/test_config_system.py` | ✅ 通过 | 配置系统测试（19 个测试） |
 | `tests/test_llm_client.py` | ✅ 通过 | LLM 客户端测试（24 个测试，1 跳过） |
 | `tests/test_tracer.py` | ✅ 通过 | tracer 全链路测试（22 个测试） |
-| **总计** | **81 passed, 1 skipped** | — |
+| `tests/test_semantic_memory.py` | ✅ 通过 | 语义记忆引擎测试（17 个测试） |
+| `tests/test_refresh_engine.py` | ✅ 通过 | 刷新引擎测试（6 个测试） |
+| `tests/test_task_workspace.py` | ✅ 通过 | 任务工作区测试（20 个测试） |
+| `tests/test_initialization.py` | ✅ 通过 | 初始化测试（11 个测试） |
+| `tests/test_card_management.py` | ✅ 通过 | Card 管理测试（8 个测试） |
+| **总计** | **141 passed, 1 skipped** | — |
 
 ---
 
@@ -501,3 +522,5 @@ records, invokes the provider, and emits tracking events.
 |------|------|------|
 | 2026-05-30 | v1.0 | 初始开发计划，基于轻量 scanner + context router |
 | 2026-05-31 | v2.0-rewrite | 完全推翻旧设计，重写为入口驱动的语义记忆系统 |
+| 2026-05-31 | v2.1 | Phase 0-4 完成（初始化、Tracer、Card 生成器、CLI、版本化与刷新） |
+| 2026-05-31 | v2.2 | Phase 5 完成（Task Workspace: start/export/validate/list/status） |

@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
 from pydantic import BaseModel
+
+logger = logging.getLogger("repoctx.semantic_memory")
 
 from repoctx.cards import (
     CardVersion,
@@ -32,7 +35,7 @@ from repoctx.semantic_memory.versioning import (
 from repoctx.tracer.base import CallNode, CallTree, TracerContext
 from repoctx.tracer.factory import get_tracer
 from repoctx.utils.project import find_project_root
-from repoctx.utils.yaml_io import dump_yaml
+from repoctx.utils.yaml_io import dump_yaml, load_yaml
 
 
 @dataclass
@@ -116,6 +119,7 @@ class SemanticDigestEngine:
         file_path: str,
         target_symbols: list[str] | None = None,
         max_depth: int = 3,
+        force: bool = False,
     ) -> DigestResult:
         """Digest an entry file and generate semantic memory cards.
 
@@ -128,12 +132,14 @@ class SemanticDigestEngine:
         Returns:
             DigestResult containing generated cards and their write paths.
         """
+        logger.info("Tracing %s (symbols=%s, depth=%d)", file_path, target_symbols, max_depth)
         context = TracerContext(
             project_root=self.project_root,
             max_depth=max_depth,
         )
         tracer = get_tracer(file_path, context)
         tree = tracer.trace(file_path, symbol_names=target_symbols)
+        logger.info("Trace complete: %d nodes found", len(tree.all_nodes))
 
         # The tracer returns a synthetic root when multiple symbols are traced.
         entries = self._extract_entries(tree, file_path)
@@ -143,17 +149,15 @@ class SemanticDigestEngine:
 
         for entry in entries:
             entry_card, symbol_cards, context_pack, paths = self._digest_entry(
-                entry, max_depth
+                entry, max_depth, force=force
             )
-            all_cards.extend(
-                [
-                    entry_card.model_dump(mode="json"),
-                    *[sc.model_dump(mode="json") for sc in symbol_cards],
-                    context_pack.model_dump(mode="json"),
-                ]
-            )
+            all_cards.append(entry_card.model_dump(mode="json"))
+            all_cards.extend(sc.model_dump(mode="json") for sc in symbol_cards)
+            if context_pack is not None:
+                all_cards.append(context_pack.model_dump(mode="json"))
             all_paths.extend(paths)
 
+        logger.info("Digest finished: %d cards, %d files written", len(all_cards), len(all_paths))
         return DigestResult(cards=all_cards, written_paths=all_paths)
 
     # ------------------------------------------------------------------
@@ -189,35 +193,90 @@ class SemanticDigestEngine:
         self,
         entry: CallNode,
         max_depth: int,
-    ) -> tuple[EntryCard, list[SymbolCard], ContextPack, list[Path]]:
-        """Digest a single entry node and persist its cards."""
+        force: bool = False,
+    ) -> tuple[EntryCard, list[SymbolCard], ContextPack | None, list[Path]]:
+        """Digest a single entry node and persist its cards incrementally.
+
+        Cards are written to disk as soon as they are generated.  If the
+        ContextPack step fails, the EntryCard and SymbolCards already on disk
+        are kept.
+
+        When *force* is False and the existing EntryCard's ``code_hash``
+        matches the current source file, the entire entry is skipped to avoid
+        wasting LLM tokens.
+        """
+        logger.info("Digesting entry: %s", entry.symbol)
+
         # Version metadata
         code_hash = compute_file_hash(self.project_root / entry.source.file)
         git_commit = get_git_commit(self.project_root)
         dep_hash = compute_dependency_hash(entry)
         generated_at = datetime.now(timezone.utc).isoformat()
+        all_paths: list[Path] = []
 
-        # 1. EntryCard
-        entry_card = self._generate_entry_card(
-            entry, code_hash, dep_hash, git_commit, generated_at
-        )
+        # 1. EntryCard — check freshness, generate + persist immediately
+        existing_entry = None if force else self._load_existing_entry_card(entry)
+        if existing_entry is not None and existing_entry.version.code_hash == code_hash:
+            logger.info("EntryCard is up-to-date (code_hash=%s), skipping LLM", code_hash[:8])
+            entry_card = existing_entry
+            ep = self._entry_card_path(entry_card)
+            all_paths.append(ep)
+        else:
+            logger.info("Generating EntryCard...")
+            entry_card = self._generate_entry_card(
+                entry, code_hash, dep_hash, git_commit, generated_at
+            )
+            logger.info("  → %s", entry_card.id)
+            ep = self._persist_entry_card(entry_card)
+            all_paths.append(ep)
+            logger.info("  Persisted: %s", ep)
 
-        # 2. SymbolCards (depth <= 2, non-external)
+        # 2. SymbolCards — check freshness per symbol
         symbol_nodes = self._collect_symbol_nodes(entry, max_depth=2)
-        symbol_cards = self._generate_symbol_cards(
-            symbol_nodes, entry.symbol, git_commit, generated_at
-        )
+        logger.info("Generating SymbolCards (%d symbols)...", len(symbol_nodes))
+        symbol_cards: list[SymbolCard] = []
+        nodes_to_generate: list[CallNode] = []
+        for node in symbol_nodes:
+            existing = None if force else self._load_existing_symbol_card(node)
+            node_hash = compute_file_hash(self.project_root / node.source.file)
+            if existing is not None and existing.version.code_hash == node_hash:
+                logger.info("  Symbol %s is up-to-date, skipping", node.symbol)
+                symbol_cards.append(existing)
+            else:
+                nodes_to_generate.append(node)
 
-        # 3. ContextPack
+        if nodes_to_generate:
+            new_cards = self._generate_symbol_cards(
+                nodes_to_generate, entry.symbol, git_commit, generated_at
+            )
+            for sc in new_cards:
+                logger.info("  → %s", sc.id)
+            symbol_cards.extend(new_cards)
+            sym_paths = self._persist_symbol_cards(new_cards)
+            all_paths.extend(sym_paths)
+            for sp in sym_paths:
+                logger.info("  Persisted: %s", sp)
+        else:
+            logger.info("  All symbol cards up-to-date")
+            for sc in symbol_cards:
+                all_paths.append(self._symbol_card_path(sc))
+
+        # 3. ContextPack — generate + persist, but tolerate failure
+        logger.info("Generating ContextPack...")
         all_nodes = self._flatten(entry)
-        context_pack = self._generate_context_pack(
-            entry, all_nodes, git_commit, generated_at
-        )
+        try:
+            context_pack = self._generate_context_pack(
+                entry, all_nodes, git_commit, generated_at
+            )
+            logger.info("  → %s", context_pack.id)
+            cp = self._persist_context_pack(context_pack)
+            all_paths.append(cp)
+            logger.info("  Persisted: %s", cp)
+        except Exception as e:
+            logger.error("ContextPack generation failed: %s", e)
+            context_pack = None
 
-        # 4. Persist
-        paths = self._persist(entry_card, symbol_cards, context_pack)
-
-        return entry_card, symbol_cards, context_pack, paths
+        return entry_card, symbol_cards, context_pack, all_paths
 
     # ----- LLM generation ------------------------------------------------
 
@@ -230,7 +289,9 @@ class SemanticDigestEngine:
         generated_at: str,
     ) -> EntryCard:
         prompt = build_entry_prompt(entry, self.project_root)
+        logger.info("Calling LLM for EntryCard (prompt length: %d chars)", len(prompt))
         output = self.pipeline.run_inline(prompt, _EntryOutput)
+        logger.info("LLM response received for EntryCard")
 
         return EntryCard(
             id=f"entry.{self._module_name(entry.source.file)}.{entry.symbol}",
@@ -254,10 +315,13 @@ class SemanticDigestEngine:
         generated_at: str,
     ) -> list[SymbolCard]:
         if not nodes:
+            logger.info("No symbol nodes to process")
             return []
 
         prompt = build_symbol_prompt(nodes, self.project_root, flow_name)
+        logger.info("Calling LLM for SymbolCards (prompt length: %d chars)", len(prompt))
         outputs = self.pipeline.run_inline(prompt, list[_SymbolOutput])
+        logger.info("LLM response received for SymbolCards (%d cards)", len(outputs))
 
         cards: list[SymbolCard] = []
         for out, node in zip(outputs, nodes):
@@ -290,7 +354,9 @@ class SemanticDigestEngine:
         generated_at: str,
     ) -> ContextPack:
         prompt = build_context_prompt(entry, all_nodes, self.project_root)
+        logger.info("Calling LLM for ContextPack (prompt length: %d chars)", len(prompt))
         output = self.pipeline.run_inline(prompt, _ContextOutput)
+        logger.info("LLM response received for ContextPack")
 
         return ContextPack(
             id=output.id,
@@ -339,32 +405,98 @@ class SemanticDigestEngine:
 
     # ----- Persistence ---------------------------------------------------
 
-    def _persist(
-        self,
-        entry_card: EntryCard,
-        symbol_cards: list[SymbolCard],
-        context_pack: ContextPack,
-    ) -> list[Path]:
-        base = self.project_root / ".repograph" / "semantic_memory"
+    def _persist_entry_card(self, entry_card: EntryCard) -> Path:
+        path = (
+            self.project_root
+            / ".repograph"
+            / "semantic_memory"
+            / "entries"
+            / f"{entry_card.id}.yaml"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        dump_yaml(entry_card.model_dump(mode="json"), path)
+        return path
+
+    def _persist_symbol_cards(self, symbol_cards: list[SymbolCard]) -> list[Path]:
         paths: list[Path] = []
-
-        entry_path = base / "entries" / f"{entry_card.id}.yaml"
-        entry_path.parent.mkdir(parents=True, exist_ok=True)
-        dump_yaml(entry_card.model_dump(mode="json"), entry_path)
-        paths.append(entry_path)
-
         for sc in symbol_cards:
-            sym_path = base / "symbols" / f"{sc.id}.yaml"
-            sym_path.parent.mkdir(parents=True, exist_ok=True)
-            dump_yaml(sc.model_dump(mode="json"), sym_path)
-            paths.append(sym_path)
-
-        cp_path = base / "context_packs" / f"{context_pack.id}.yaml"
-        cp_path.parent.mkdir(parents=True, exist_ok=True)
-        dump_yaml(context_pack.model_dump(mode="json"), cp_path)
-        paths.append(cp_path)
-
+            path = (
+                self.project_root
+                / ".repograph"
+                / "semantic_memory"
+                / "symbols"
+                / f"{sc.id}.yaml"
+            )
+            path.parent.mkdir(parents=True, exist_ok=True)
+            dump_yaml(sc.model_dump(mode="json"), path)
+            paths.append(path)
         return paths
+
+    def _persist_context_pack(self, context_pack: ContextPack) -> Path:
+        path = (
+            self.project_root
+            / ".repograph"
+            / "semantic_memory"
+            / "context_packs"
+            / f"{context_pack.id}.yaml"
+        )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        dump_yaml(context_pack.model_dump(mode="json"), path)
+        return path
+
+    # ----- Existing card helpers -----------------------------------------
+
+    def _entry_card_path(self, entry_card: EntryCard) -> Path:
+        return (
+            self.project_root
+            / ".repograph"
+            / "semantic_memory"
+            / "entries"
+            / f"{entry_card.id}.yaml"
+        )
+
+    def _symbol_card_path(self, symbol_card: SymbolCard) -> Path:
+        return (
+            self.project_root
+            / ".repograph"
+            / "semantic_memory"
+            / "symbols"
+            / f"{symbol_card.id}.yaml"
+        )
+
+    def _load_existing_entry_card(self, entry: CallNode) -> EntryCard | None:
+        module = self._module_name(entry.source.file)
+        path = (
+            self.project_root
+            / ".repograph"
+            / "semantic_memory"
+            / "entries"
+            / f"entry.{module}.{entry.symbol}.yaml"
+        )
+        if not path.exists():
+            return None
+        try:
+            raw = load_yaml(path)
+            return EntryCard.model_validate(raw)
+        except Exception:
+            return None
+
+    def _load_existing_symbol_card(self, node: CallNode) -> SymbolCard | None:
+        module = self._module_name(node.source.file)
+        path = (
+            self.project_root
+            / ".repograph"
+            / "semantic_memory"
+            / "symbols"
+            / f"symbol.{module}.{node.symbol}.yaml"
+        )
+        if not path.exists():
+            return None
+        try:
+            raw = load_yaml(path)
+            return SymbolCard.model_validate(raw)
+        except Exception:
+            return None
 
     # ----- Utilities -----------------------------------------------------
 

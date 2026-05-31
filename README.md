@@ -118,7 +118,7 @@ tencent_cloud_llm_api_key = sk-xxxxxxxxxxxxxxxx
 ### 第三步：消化一个入口函数
 
 ```bash
-repoctx digest-entry backend/free_call/views.py --only start_free_call --depth 3
+ backend/free_call/views.py --only start_free_call --depth 3
 ```
 
 `digest-entry` 会：
