@@ -42,6 +42,8 @@ class ModelProviderConfig(BaseModel):
 class RepoCtxConfig(BaseModel):
     """Root configuration model for .repoctx.yaml."""
 
+    model_config = {"protected_namespaces": ()}
+
     project_name: str = Field(..., description="Project name")
     version: str = Field(default="0.1.0", description="RepoCtx Guard config format version")
     language: str = Field(..., description="Primary programming language")

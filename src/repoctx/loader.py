@@ -5,13 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from repoctx.models import (
-    BlockPolicy,
-    Capability,
-    CapabilityIndex,
-    EntryPoint,
     ModuleDefinition,
-    ProtectedCore,
-    ProtectedCoreIndex,
     RepoCtxConfig,
 )
 from repoctx.utils.project import find_project_root
@@ -45,7 +39,7 @@ def load_config(project_root: Path | str | None = None) -> RepoCtxConfig:
     if not config_path.exists():
         raise ConfigNotFoundError(
             f"Configuration file not found: {config_path}\n"
-            f"Run 'repoctx scan' to generate a template, or create it manually."
+            f"Create it manually or run 'repoctx init'."
         )
 
     try:
@@ -102,159 +96,3 @@ def generate_config_template(project_root: Path | str) -> Path:
 
     dump_yaml(default.model_dump(mode="json", exclude_none=True), target)
     return target
-
-
-def load_protected_core_index(project_root: Path | str) -> ProtectedCoreIndex:
-    """Load the protected core index from the configured path.
-
-    Args:
-        project_root: Project root directory.
-
-    Returns:
-        ProtectedCoreIndex instance. Returns an empty index if the file
-        does not exist, so callers can decide whether to warn or error.
-    """
-    root = Path(project_root).resolve()
-    config = load_config(root)
-    path = root / config.protected_core_file
-
-    if not path.exists():
-        return ProtectedCoreIndex()
-
-    raw = load_yaml(path)
-    if not isinstance(raw, dict):
-        return ProtectedCoreIndex()
-
-    return ProtectedCoreIndex.model_validate(raw)
-
-
-def load_capability_index(project_root: Path | str) -> CapabilityIndex:
-    """Load the reusable capability index from the configured path.
-
-    Args:
-        project_root: Project root directory.
-
-    Returns:
-        CapabilityIndex instance. Returns an empty index if the file
-        does not exist.
-    """
-    root = Path(project_root).resolve()
-    config = load_config(root)
-    path = root / config.reusable_capabilities_file
-
-    if not path.exists():
-        return CapabilityIndex()
-
-    raw = load_yaml(path)
-    if not isinstance(raw, dict):
-        return CapabilityIndex()
-
-    return CapabilityIndex.model_validate(raw)
-
-
-def generate_protected_core_template(project_root: Path | str) -> Path:
-    """Generate a protected_core.yaml template with sample entries.
-
-    Args:
-        project_root: Project root directory.
-
-    Returns:
-        Path to the generated file.
-    """
-    root = Path(project_root).resolve()
-    config = load_config(root)
-    path = root / config.protected_core_file
-
-    if path.exists():
-        return path
-
-    sample = ProtectedCoreIndex(
-        version="1.0",
-        cores=[
-            ProtectedCore(
-                id="core-auth",
-                name="auth/session/login",
-                type="service",
-                files=["backend/auth/*.py"],
-                modules=["auth"],
-                used_by=["free_call", "subscription", "verification_channel"],
-                description="Authentication and session management core. Do not modify internals.",
-                block_policy=BlockPolicy(
-                    default_action="block",
-                    required_explanations=[
-                        "Why core change is necessary",
-                        "Why wrapper/adapter is insufficient",
-                    ],
-                    required_evidence=["Affected flows list"],
-                    require_regression_tests=True,
-                    require_rollback_plan=True,
-                ),
-            ),
-        ],
-    )
-
-    dump_yaml(sample.model_dump(mode="json", exclude_none=True), path)
-    return path
-
-
-def dump_protected_core_index(index: ProtectedCoreIndex, project_root: Path | str) -> Path:
-    """Persist a protected core index to YAML."""
-    root = Path(project_root).resolve()
-    config = load_config(root)
-    path = root / config.protected_core_file
-    path.parent.mkdir(parents=True, exist_ok=True)
-    dump_yaml(index.model_dump(mode="json", exclude_none=True), path)
-    return path
-
-
-def dump_capability_index(index: CapabilityIndex, project_root: Path | str) -> Path:
-    """Persist a capability index to YAML."""
-    root = Path(project_root).resolve()
-    config = load_config(root)
-    path = root / config.reusable_capabilities_file
-    path.parent.mkdir(parents=True, exist_ok=True)
-    dump_yaml(index.model_dump(mode="json", exclude_none=True), path)
-    return path
-
-
-def generate_capability_template(project_root: Path | str) -> Path:
-    """Generate a reusable_capabilities.yaml template with sample entries.
-
-    Args:
-        project_root: Project root directory.
-
-    Returns:
-        Path to the generated file.
-    """
-    root = Path(project_root).resolve()
-    config = load_config(root)
-    path = root / config.reusable_capabilities_file
-
-    if path.exists():
-        return path
-
-    sample = CapabilityIndex(
-        version="1.0",
-        capabilities=[
-            Capability(
-                id="cap-balance-check",
-                name="credit balance check",
-                description="Get available credit balance for a user.",
-                module_id="credits",
-                entry_points=[
-                    EntryPoint(
-                        file_path="backend/credits/services.py",
-                        function_name="get_available_balance",
-                        signature="def get_available_balance(user_id: str) -> int",
-                        usage_example="balance = get_available_balance(user_id)",
-                    )
-                ],
-                use_cases=["Before initiating a paid call", "Before subscription renewal"],
-                constraints=["Do not modify this function for domain-specific logic"],
-                related_capabilities=[],
-            ),
-        ],
-    )
-
-    dump_yaml(sample.model_dump(mode="json", exclude_none=True), path)
-    return path

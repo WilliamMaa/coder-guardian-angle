@@ -1,132 +1,127 @@
-"""RepoCtx Guard CLI entry point and commands."""
+"""RepoCtx Guard CLI — new command set for Semantic Memory & Engineering Guard."""
 
-from pathlib import Path
+from __future__ import annotations
 
 import click
 
-from repoctx.context_router import ContextRouter
-
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="repoctx")
+@click.version_option(version="0.2.0", prog_name="repoctx")
 def main() -> None:
-    """RepoCtx Guard — AI-assisted Development Control Plane.
+    """Repo Semantic Memory & Engineering Guard.
 
-    Standing beside the AI coder, constraining it, reminding it,
-    reviewing it, and recording it.
+    A semantic memory layer between AI coders and your project.
+    It digests code from entry points, persists call-chain semantics,
+    and guards against structural, test, and legacy violations.
     """
     pass
 
 
-@main.command()
-@click.option(
-    "--auto-approve",
-    is_flag=True,
-    default=False,
-    help="Auto-accept all discovered protected cores and capabilities without interactive review.",
-)
-def scan(auto_approve: bool) -> None:
-    """Scan project and build the knowledge graph index."""
-    from repoctx.scanner.engine import scan_project
+# ---------------------------------------------------------------------------
+# Semantic Memory
+# ---------------------------------------------------------------------------
 
+@main.command()
+@click.argument("file_path")
+@click.option(
+    "--only",
+    type=str,
+    default=None,
+    help="Comma-separated list of function names to digest (default: all top-level functions).",
+)
+@click.option(
+    "--depth",
+    type=int,
+    default=3,
+    help="Maximum call-chain depth to trace (default: 3).",
+)
+@click.option(
+    "--output-dir",
+    "-o",
+    type=click.Path(file_okay=False, writable=True),
+    default=None,
+    help="Directory to write generated cards (default: .repograph/semantic_memory/).",
+)
+def digest_entry(file_path: str, only: str | None, depth: int, output_dir: str | None) -> None:
+    """Digest an entry file and generate semantic memory cards."""
+    from repoctx.semantic_memory.engine import SemanticDigestEngine
+    from repoctx.utils.project import find_project_root
+
+    project_root = find_project_root()
+    target_symbols = [s.strip() for s in only.split(",")] if only else None
+
+    engine = SemanticDigestEngine(project_root)
     try:
-        repograph_dir = scan_project(auto_approve=auto_approve)
-        click.echo(f"Scan complete. Knowledge graph written to: {repograph_dir}")
+        result = engine.digest(file_path, target_symbols=target_symbols, max_depth=depth)
+        click.echo(f"Digest complete: {len(result.cards)} cards generated.")
+        for card_path in result.written_paths:
+            click.echo(f"  → {card_path}")
     except Exception as e:
-        click.echo(f"Scan failed: {e}", err=True)
         raise click.ClickException(str(e)) from e
 
 
 @main.command()
-@click.argument("task", required=False)
-@click.option(
-    "--from-file",
-    "entry_file",
-    type=str,
-    default=None,
-    help="Analyze a specific entry file instead of using a natural-language task. "
-         "Example: --from-file backend/freecall/views.py",
-)
-@click.option(
-    "--max-depth",
-    type=int,
-    default=2,
-    help="Maximum dependency hops to traverse when using --from-file (default: 2).",
-)
-@click.option(
-    "--max-tokens",
-    type=int,
-    default=3000,
-    help="Maximum context length in tokens for LLM-based analysis (default: 3000).",
-)
-@click.option(
-    "--output",
-    "-o",
-    type=click.Path(dir_okay=False, writable=True),
-    default=None,
-    help="Write report to a file instead of stdout.",
-)
-@click.option(
-    "--format",
-    "output_format",
-    type=click.Choice(["text", "json"], case_sensitive=False),
-    default="text",
-    help="Output format (default: text).",
-)
-def context(
-    task: str | None,
-    entry_file: str | None,
-    max_depth: int,
-    max_tokens: int,
-    output: str | None,
-    output_format: str,
-) -> None:
-    """Generate minimal but accurate context for a given TASK or ENTRY FILE."""
-    content: str
+def stale() -> None:
+    """Check which semantic memory cards are stale."""
+    click.echo("[repoctx stale] Not yet implemented.")
 
-    if entry_file:
-        # Entry-driven analysis (no LLM, graph-based)
-        from repoctx.entry_context import EntryContextAnalyzer
 
-        try:
-            analyzer = EntryContextAnalyzer()
-            entry_report = analyzer.analyze(entry_file, max_depth=max_depth)
-        except RuntimeError as e:
-            raise click.ClickException(str(e)) from e
-        except ValueError as e:
-            raise click.ClickException(str(e)) from e
-        except Exception as e:
-            raise click.ClickException(f"Entry context analysis failed: {e}") from e
+@main.command()
+@click.option("--affected", is_flag=True, help="Refresh only affected cards.")
+def refresh(affected: bool) -> None:
+    """Refresh semantic memory cards."""
+    click.echo(f"[repoctx refresh] affected={affected}. Not yet implemented.")
 
-        if output_format == "json":
-            content = entry_report.model_dump_json(indent=2)
-        else:
-            content = analyzer.format_text(entry_report)
-    else:
-        # Semantic-driven analysis (LLM-based)
-        if not task:
-            raise click.ClickException(
-                "Please provide a TASK description or use --from-file <path>."
-            )
-        try:
-            router = ContextRouter()
-            semantic_report = router.generate(task)
-        except ValueError as e:
-            raise click.ClickException(str(e)) from e
-        except Exception as e:
-            raise click.ClickException(f"Context generation failed: {e}") from e
 
-        if output_format == "json":
-            content = semantic_report.model_dump_json(indent=2)
-        else:
-            content = router.format_text(semantic_report)
+@main.command()
+@click.option("--since", default="main", help="Git ref to compare against.")
+def semantic_diff(since: str) -> None:
+    """Summarize semantic changes since a git ref."""
+    click.echo(f"[repoctx semantic-diff] since={since}. Not yet implemented.")
 
-    if output:
-        Path(output).write_text(content, encoding="utf-8")
-        click.echo(f"Report written to: {output}")
-    else:
-        click.echo(content)
 
+@main.command()
+@click.argument("flow_or_entry")
+def export_context(flow_or_entry: str) -> None:
+    """Export a context pack for a flow or entry."""
+    click.echo(f"[repoctx export-context] {flow_or_entry}. Not yet implemented.")
+
+
+# ---------------------------------------------------------------------------
+# Task Workspace
+# ---------------------------------------------------------------------------
+
+@main.group()
+def task() -> None:
+    """Task workspace commands."""
+    pass
+
+
+@task.command("start")
+@click.argument("task_name")
+@click.option("--entry", required=True, help="Entry point for the task (file::symbol).")
+def task_start(task_name: str, entry: str) -> None:
+    """Start a new task workspace."""
+    click.echo(f"[repoctx task start] {task_name} entry={entry}. Not yet implemented.")
+
+
+@task.command("export")
+@click.argument("task_id")
+def task_export(task_id: str) -> None:
+    """Export a task workspace as unified context."""
+    click.echo(f"[repoctx task export] {task_id}. Not yet implemented.")
+
+
+@task.command("status")
+@click.argument("task_id")
+def task_status(task_id: str) -> None:
+    """Show task workspace status."""
+    click.echo(f"[repoctx task status] {task_id}. Not yet implemented.")
+
+
+# ---------------------------------------------------------------------------
+# Guards
+# ---------------------------------------------------------------------------
 
 @main.command()
 def status() -> None:
@@ -134,17 +129,34 @@ def status() -> None:
     click.echo("[repoctx status] Not yet implemented.")
 
 
-@main.command("commit-check")
+@main.command()
+def structure_check() -> None:
+    """Check new code structure against engineering principles."""
+    click.echo("[repoctx structure-check] Not yet implemented.")
+
+
+@main.command()
+@click.option("--task", "task_id", help="Task ID for test-impact analysis.")
+def test_impact(task_id: str | None) -> None:
+    """Analyze test impact of current changes."""
+    click.echo(f"[repoctx test-impact] task={task_id}. Not yet implemented.")
+
+
+@main.command()
+def legacy_check() -> None:
+    """Check for legacy core violations."""
+    click.echo("[repoctx legacy-check] Not yet implemented.")
+
+
+@main.command()
 def commit_check() -> None:
     """Unified pre-commit gate check."""
     click.echo("[repoctx commit-check] Not yet implemented.")
 
 
-@main.command("test-impact")
-def test_impact() -> None:
-    """Analyze test impact of current changes."""
-    click.echo("[repoctx test-impact] Not yet implemented.")
-
+# ---------------------------------------------------------------------------
+# Experiment Agent
+# ---------------------------------------------------------------------------
 
 @main.group()
 def exp() -> None:
@@ -152,27 +164,40 @@ def exp() -> None:
     pass
 
 
+@exp.command("init")
+def exp_init() -> None:
+    """Initialize an experiment workspace."""
+    click.echo("[repoctx exp init] Not yet implemented.")
+
+
+@exp.command("check")
+@click.option("--config", required=True, help="Path to experiment config file.")
+def exp_check(config: str) -> None:
+    """Run pre-experiment checks."""
+    click.echo(f"[repoctx exp check] config={config}. Not yet implemented.")
+
+
 @exp.command("run")
 @click.option("--name", required=True, help="Experiment name (unique).")
 @click.option("--cmd", required=True, help="Command to run the experiment.")
-@click.option("--config", help="Path to experiment config file.")
 @click.option("--notify", help="Slack channel or email to notify on completion.")
-def exp_run(name: str, cmd: str, config: str | None, notify: str | None) -> None:
+def exp_run(name: str, cmd: str, notify: str | None) -> None:
     """Run an experiment with monitoring and summary."""
-    click.echo(f"[repoctx exp run] name={name}, cmd={cmd}")
-    if config:
-        click.echo(f"  config={config}")
-    if notify:
-        click.echo(f"  notify={notify}")
-    click.echo("Not yet implemented.")
+    click.echo(f"[repoctx exp run] name={name}, cmd={cmd}. Not yet implemented.")
 
 
 @exp.command("summarize")
-@click.option("--run", "run_name", required=True, help="Experiment name to summarize.")
-def exp_summarize(run_name: str) -> None:
+@click.argument("run_id")
+def exp_summarize(run_id: str) -> None:
     """Summarize a completed experiment run."""
-    click.echo(f"[repoctx exp summarize] run={run_name}")
-    click.echo("Not yet implemented.")
+    click.echo(f"[repoctx exp summarize] run={run_id}. Not yet implemented.")
+
+
+@exp.command("diagnose")
+@click.argument("run_id")
+def exp_diagnose(run_id: str) -> None:
+    """Diagnose an experiment run with dual-track analysis."""
+    click.echo(f"[repoctx exp diagnose] run={run_id}. Not yet implemented.")
 
 
 if __name__ == "__main__":

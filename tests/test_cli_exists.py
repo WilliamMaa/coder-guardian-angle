@@ -10,25 +10,81 @@ def test_main_command_exists() -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["--help"])
     assert result.exit_code == 0
-    assert "RepoCtx Guard" in result.output
+    assert "Repo Semantic Memory & Engineering Guard" in result.output
 
 
-def test_scan_command_exists() -> None:
-    """scan sub-command should be registered."""
+# ---------------------------------------------------------------------------
+# Semantic Memory commands
+# ---------------------------------------------------------------------------
+
+
+def test_digest_entry_command_exists() -> None:
+    """digest-entry sub-command should be registered."""
     runner = CliRunner()
-    result = runner.invoke(main, ["scan", "--help"])
+    result = runner.invoke(main, ["digest-entry", "--help"])
     assert result.exit_code == 0
-    assert "Scan project" in result.output
+    assert "Digest an entry file" in result.output
+    assert "--only" in result.output
+    assert "--depth" in result.output
 
 
-def test_context_command_exists() -> None:
-    """context sub-command should be registered with options."""
+def test_stale_command_exists() -> None:
+    """stale sub-command should be registered."""
     runner = CliRunner()
-    result = runner.invoke(main, ["context", "--help"])
+    result = runner.invoke(main, ["stale", "--help"])
     assert result.exit_code == 0
-    assert "TASK" in result.output
-    assert "--max-tokens" in result.output
-    assert "--format" in result.output
+
+
+def test_refresh_command_exists() -> None:
+    """refresh sub-command should be registered."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["refresh", "--help"])
+    assert result.exit_code == 0
+    assert "--affected" in result.output
+
+
+def test_semantic_diff_command_exists() -> None:
+    """semantic-diff sub-command should be registered."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["semantic-diff", "--help"])
+    assert result.exit_code == 0
+    assert "--since" in result.output
+
+
+def test_export_context_command_exists() -> None:
+    """export-context sub-command should be registered."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["export-context", "--help"])
+    assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Task workspace commands
+# ---------------------------------------------------------------------------
+
+
+def test_task_group_exists() -> None:
+    """task group should be registered with sub-commands."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["task", "--help"])
+    assert result.exit_code == 0
+    assert "Task workspace" in result.output
+    assert "start" in result.output
+    assert "export" in result.output
+    assert "status" in result.output
+
+
+def test_task_start_command_exists() -> None:
+    """task start sub-command should have required options."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["task", "start", "--help"])
+    assert result.exit_code == 0
+    assert "--entry" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Guard commands
+# ---------------------------------------------------------------------------
 
 
 def test_status_command_exists() -> None:
@@ -39,12 +95,11 @@ def test_status_command_exists() -> None:
     assert "health status" in result.output
 
 
-def test_commit_check_command_exists() -> None:
-    """commit-check sub-command should be registered."""
+def test_structure_check_command_exists() -> None:
+    """structure-check sub-command should be registered."""
     runner = CliRunner()
-    result = runner.invoke(main, ["commit-check", "--help"])
+    result = runner.invoke(main, ["structure-check", "--help"])
     assert result.exit_code == 0
-    assert "pre-commit gate" in result.output
 
 
 def test_test_impact_command_exists() -> None:
@@ -52,7 +107,26 @@ def test_test_impact_command_exists() -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["test-impact", "--help"])
     assert result.exit_code == 0
-    assert "test impact" in result.output
+    assert "--task" in result.output
+
+
+def test_legacy_check_command_exists() -> None:
+    """legacy-check sub-command should be registered."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["legacy-check", "--help"])
+    assert result.exit_code == 0
+
+
+def test_commit_check_command_exists() -> None:
+    """commit-check sub-command should be registered."""
+    runner = CliRunner()
+    result = runner.invoke(main, ["commit-check", "--help"])
+    assert result.exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Experiment commands
+# ---------------------------------------------------------------------------
 
 
 def test_exp_group_exists() -> None:
@@ -75,8 +149,8 @@ def test_exp_run_command_exists() -> None:
 
 
 def test_exp_summarize_command_exists() -> None:
-    """exp summarize sub-command should have required options."""
+    """exp summarize sub-command should accept a RUN_ID argument."""
     runner = CliRunner()
     result = runner.invoke(main, ["exp", "summarize", "--help"])
     assert result.exit_code == 0
-    assert "--run" in result.output
+    assert "RUN_ID" in result.output
