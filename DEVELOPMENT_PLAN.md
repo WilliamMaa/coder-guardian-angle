@@ -255,11 +255,11 @@ records, invokes the provider, and emits tracking events.
 
 | 命令 | 状态 | 说明 |
 |------|------|------|
-| `repoctx status` | ⏳ 待开发 | working tree 健康度 |
-| `repoctx structure-check` | ⏳ 待开发 | 新代码结构检查 |
-| `repoctx test-impact --task <id>` | ⏳ 待开发 | 测试影响分析 |
-| `repoctx legacy-check` | ⏳ 待开发 | 老代码保护检查 |
-| `repoctx commit-check` | ⏳ 待开发 | commit 前统一 gate |
+| `repoctx status` | ✅ 已完成 | working tree 健康度汇总 |
+| `repoctx structure-check` | ✅ 已完成 | AST 扫描新代码结构违规 |
+| `repoctx test-impact` | ✅ 已完成 | 基于语义记忆分析测试影响 |
+| `repoctx legacy-check` | ✅ 已完成 | 保护 protected entities |
+| `repoctx commit-check` | ✅ 已完成 | 统一 pre-commit gate |
 
 ### 4.4 Experiment Agent
 
@@ -398,11 +398,19 @@ records, invokes the provider, and emits tracking events.
 - [x] `repoctx task validate`：检查 diff 是否违背 out_of_scope / frozen_assumptions
 - [x] 测试：20 个测试全部通过
 
-### Phase 6：Guards
+### Phase 6：Guards ✅ 已完成
 
-- [ ] `repoctx structure-check`：基于语义记忆检查新代码结构
-- [ ] `repoctx test-impact`：基于语义记忆分析测试影响
-- [ ] `repoctx legacy-check`：基于 protected semantic entity 检查
+- [x] `repoctx structure-check`：AST 扫描变更文件，检查 engineering constitution
+  - 已实现规则：禁止下划线函数名、强制 docstring、禁止 getattr fallback
+  - 规则通过 `engineering_constitution.yaml` 控制启用/禁用/severity
+- [x] `repoctx test-impact`：基于语义记忆分析当前变更影响的测试范围
+  - 通过 entry card → context pack 链路找到 related_tests
+  - 识别未覆盖的变更文件
+- [x] `repoctx legacy-check`：检查 diff 是否触及 protected entities
+  - 支持 file / module / pattern 三种匹配方式
+- [x] `repoctx commit-check`：统一 gate，聚合 structure + test-impact + legacy
+- [x] `repoctx status`：展示项目健康度（卡片数、过期数、任务数、规则数）
+- [x] 测试：27 个 guards 测试全部通过
 
 ### Phase 7：Experiment Agent
 
@@ -454,7 +462,12 @@ records, invokes the provider, and emits tracking events.
 | `src/repoctx/semantic_memory/refresh_engine.py` | ✅ 完成 | RefreshEngine，stale 检测与 affected 增量刷新 |
 | `src/repoctx/semantic_memory/prompt_builder.py` | ✅ 完成 | Entry/Symbol/ContextPack prompt 组装 |
 | `src/repoctx/task_workspace/engine.py` | ✅ 完成 | TaskWorkspace，start/export/validate |
-| `src/repoctx/cli.py` | ✅ 重写完成 | 新命令体系已注册，digest-entry / task / guards 占位 |
+| `src/repoctx/guards/base.py` | ✅ 完成 | GuardViolation + 规则/实体加载 + git diff 工具 |
+| `src/repoctx/guards/structure_check.py` | ✅ 完成 | AST 扫描器，3 条可执行规则 |
+| `src/repoctx/guards/test_impact.py` | ✅ 完成 | 语义记忆驱动的测试影响分析 |
+| `src/repoctx/guards/legacy_check.py` | ✅ 完成 | Protected entity 保护检查 |
+| `src/repoctx/guards/commit_check.py` | ✅ 完成 | 统一 pre-commit gate |
+| `src/repoctx/cli.py` | ✅ 重写完成 | 新命令体系已注册并全部实现 |
 | `tests/test_tracer.py` | ✅ 完成 | 22 个测试全部通过 |
 
 ### 8.3 已删除的旧组件
@@ -485,9 +498,10 @@ records, invokes the provider, and emits tracking events.
 | `tests/test_semantic_memory.py` | ✅ 通过 | 语义记忆引擎测试（17 个测试） |
 | `tests/test_refresh_engine.py` | ✅ 通过 | 刷新引擎测试（6 个测试） |
 | `tests/test_task_workspace.py` | ✅ 通过 | 任务工作区测试（20 个测试） |
+| `tests/test_guards.py` | ✅ 通过 | Guards 测试（27 个测试） |
 | `tests/test_initialization.py` | ✅ 通过 | 初始化测试（11 个测试） |
 | `tests/test_card_management.py` | ✅ 通过 | Card 管理测试（8 个测试） |
-| **总计** | **141 passed, 1 skipped** | — |
+| **总计** | **168 passed, 1 skipped** | — |
 
 ---
 
@@ -524,3 +538,4 @@ records, invokes the provider, and emits tracking events.
 | 2026-05-31 | v2.0-rewrite | 完全推翻旧设计，重写为入口驱动的语义记忆系统 |
 | 2026-05-31 | v2.1 | Phase 0-4 完成（初始化、Tracer、Card 生成器、CLI、版本化与刷新） |
 | 2026-05-31 | v2.2 | Phase 5 完成（Task Workspace: start/export/validate/list/status） |
+| 2026-05-31 | v2.3 | Phase 6 完成（Guards: structure-check / test-impact / legacy-check / commit-check） |

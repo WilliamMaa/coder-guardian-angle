@@ -1,7 +1,8 @@
 """Project initialization logic for repoctx.
 
 Creates the ``.repoctx.yaml`` marker file and the full ``.repograph/``
-directory tree expected by the Semantic Memory & Engineering Guard system.
+directory tree under ``~/.repoctx/<project_name>/`` expected by the
+Semantic Memory & Engineering Guard system.
 """
 
 from __future__ import annotations
@@ -52,11 +53,59 @@ _DEFAULT_STUB_FILES: dict[str, object] = {
             "Legacy core is production asset.",
             "Unexpected experiment results require dual-track diagnosis.",
         ],
+        "rules": {
+            "no_underscore_functions": {
+                "enabled": True,
+                "severity": "error",
+                "description": "Public functions must not start with a single underscore.",
+            },
+            "mandatory_docstring": {
+                "enabled": True,
+                "severity": "error",
+                "description": "Every function must have a docstring.",
+            },
+            "no_getattr_fallback": {
+                "enabled": True,
+                "severity": "error",
+                "description": "getattr() must not be called with a default fallback value.",
+            },
+            "exception_logging": {
+                "enabled": False,
+                "severity": "warning",
+                "description": "Except blocks should log the exception.",
+            },
+            "no_silent_fallback": {
+                "enabled": False,
+                "severity": "error",
+                "description": "Functions must not silently return None on error without logging.",
+            },
+            "views_only_entries": {
+                "enabled": False,
+                "severity": "error",
+                "description": "View files must only contain registered entry functions. Helpers must live in dedicated modules.",
+                "view_file_patterns": [
+                    "**/views.py",
+                    "**/view_*.py",
+                    "**/*_view.py",
+                    "**/*_views.py",
+                ],
+            },
+        },
     },
     "guards/structure_rules.yaml": {"rules": []},
     "guards/test_rules.yaml": {"rules": []},
     "guards/legacy_rules.yaml": {"rules": []},
-    "legacy/protected_entities.yaml": {"entities": []},
+    "legacy/protected_entities.yaml": {
+        "entities": [
+            # Example format (remove or adapt for your project):
+            # {
+            #   "name": "Billing Core",
+            #   "file": "legacy/billing/core.py",
+            #   "symbol": "calculate_invoice",
+            #   "reason": "Production-critical billing logic",
+            # },
+        ]
+    },
     "legacy/reusable_capabilities.yaml": {"capabilities": []},
     "legacy/public_surfaces.yaml": {"surfaces": []},
     "legacy/core_contracts.yaml": {"contracts": []},
@@ -77,7 +126,7 @@ def init_project(
 
     Creates:
         - ``.repoctx.yaml`` configuration / marker file
-        - ``.repograph/`` directory tree with all subdirectories
+        - ``.repograph/`` directory tree under ``~/.repoctx/<project_name>/``
         - Default stub YAML files for guards, legacy, and tests
 
     Args:
@@ -120,9 +169,11 @@ def init_project(
     created.append(config_path)
 
     # ------------------------------------------------------------------
-    # 2. .repograph/ directories
+    # 2. .repograph/ directories (under ~/.repoctx/<project_name>/)
     # ------------------------------------------------------------------
-    repograph_dir = root / ".repograph"
+    from repoctx.utils.project import get_repograph_dir
+
+    repograph_dir = get_repograph_dir(root)
     for rel in _REPGRAPH_DIRECTORIES:
         dir_path = repograph_dir / rel
         dir_path.mkdir(parents=True, exist_ok=True)

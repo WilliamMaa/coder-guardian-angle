@@ -20,9 +20,6 @@ class TestFindStale:
     @pytest.fixture
     def project_with_cards(self, tmp_path: Path) -> Path:
         """Create a project with pre-existing cards."""
-        (tmp_path / ".repoctx.yaml").write_text(
-            "project_name: test\nlanguage: python\nframework: django\n"
-        )
         base = tmp_path / ".repograph" / "semantic_memory"
 
         # Entry card
@@ -118,9 +115,6 @@ class TestRefreshAffected:
 
     def test_refreshes_stale_entry(self, tmp_path: Path) -> None:
         """A stale entry card should trigger re-digest of that entry."""
-        (tmp_path / ".repoctx.yaml").write_text(
-            "project_name: test\nlanguage: python\nframework: django\n"
-        )
         (tmp_path / "views.py").write_text("def handle():\n    pass\n")
 
         # Pre-create a stale entry card
@@ -163,9 +157,6 @@ class TestRefreshAffected:
 
     def test_stale_symbol_triggers_entry_refresh(self, tmp_path: Path) -> None:
         """If a symbol is stale, entries that reference it should also refresh."""
-        (tmp_path / ".repoctx.yaml").write_text(
-            "project_name: test\nlanguage: python\nframework: django\n"
-        )
         (tmp_path / "views.py").write_text("def handle():\n    pass\n")
         (tmp_path / "services.py").write_text("def get_data():\n    return {}\n")
 
@@ -241,10 +232,6 @@ class TestRefreshAffected:
 
     def test_nothing_to_refresh(self, tmp_path: Path) -> None:
         """When all cards are fresh, refresh_affected reports nothing to do."""
-        (tmp_path / ".repoctx.yaml").write_text(
-            "project_name: test\nlanguage: python\nframework: django\n"
-        )
-
         digest_engine = MockLLMClient([])  # won't be used
         # We need a real SemanticDigestEngine for the type, but it won't call LLM
         # because there are no stale cards.
@@ -260,3 +247,131 @@ class TestRefreshAffected:
         refreshed, messages = refresh_engine.refresh_affected(digest_engine)
         assert refreshed == 0
         assert any("All cards are fresh" in m for m in messages)
+
+
+
+class TestPrune:
+    """Tests for RefreshEngine.prune."""
+
+    @pytest.fixture
+    def project_for_prune(self, tmp_path: Path) -> Path:
+        """Create a project with cards that will be pruned."""
+        base = tmp_path / ".repograph" / "semantic_memory"
+
+        # Entry card for a function that STILL exists
+        dump_yaml(
+            {
+                "card_type": "entry",
+                "id": "entry.views.handle",
+                "source": {"file": "views.py", "symbol": "handle"},
+                "version": {
+                    "code_hash": "abc",
+                    "generated_at": "2026-06-01T10:00:00",
+                    "status": "fresh",
+                },
+            },
+            base / "entries" / "entry.views.handle.yaml",
+        )
+
+        # Entry card for a function that was DELETED
+        dump_yaml(
+            {
+                "card_type": "entry",
+                "id": "entry.views.old_handler",
+                "source": {"file": "views.py", "symbol": "old_handler"},
+                "version": {
+                    "code_hash": "abc",
+                    "generated_at": "2026-06-01T10:00:00",
+                    "status": "fresh",
+                },
+            },
+            base / "entries" / "entry.views.old_handler.yaml",
+        )
+
+        # Symbol card for a function that was DELETED
+        dump_yaml(
+            {
+                "card_type": "symbol",
+                "id": "symbol.utils.old_helper",
+                "source": {"file": "utils.py", "symbol": "old_helper"},
+                "version": {
+                    "code_hash": "abc",
+                    "generated_at": "2026-06-01T10:00:00",
+                    "status": "fresh",
+                },
+            },
+            base / "symbols" / "symbol.utils.old_helper.yaml",
+        )
+
+        # Context pack for a deleted entry
+        dump_yaml(
+            {
+                "id": "context.old_handler",
+                "title": "Old Handler Flow",
+                "main_entries": ["old_handler"],
+                "version": {
+                    "generated_at": "2026-06-01T10:00:00",
+                    "status": "fresh",
+                },
+            },
+            base / "context_packs" / "context.old_handler.yaml",
+        )
+
+        # Source: handle exists, old_handler does not, new_func is new
+        (tmp_path / "views.py").write_text(
+            "def handle():\n    pass\n\ndef new_func():\n    pass\n"
+        )
+        (tmp_path / "utils.py").write_text("def existing_util():\n    pass\n")
+
+        return tmp_path
+
+    def test_prune_removes_orphaned_entry(self, project_for_prune: Path) -> None:
+        engine = RefreshEngine(project_for_prune)
+        report = engine.prune()
+
+        assert "entry.views.old_handler" in report.pruned_entries
+        assert "entry.views.handle" not in report.pruned_entries
+
+        # Verify file is actually deleted
+        assert not (
+            project_for_prune
+            / ".repograph"
+            / "semantic_memory"
+            / "entries"
+            / "entry.views.old_handler.yaml"
+        ).exists()
+
+    def test_prune_removes_orphaned_symbol(self, project_for_prune: Path) -> None:
+        engine = RefreshEngine(project_for_prune)
+        report = engine.prune()
+
+        assert "symbol.utils.old_helper" in report.pruned_symbols
+
+    def test_prune_removes_orphaned_context(self, project_for_prune: Path) -> None:
+        engine = RefreshEngine(project_for_prune)
+        report = engine.prune()
+
+        assert "context.old_handler" in report.pruned_contexts
+
+    def test_prune_reports_new_functions(self, project_for_prune: Path) -> None:
+        engine = RefreshEngine(project_for_prune)
+        report = engine.prune()
+
+        assert any("views.py::new_func" in f for f in report.new_functions)
+        # existing_util already has no card, so it is also reported
+        assert any("utils.py::existing_util" in f for f in report.new_functions)
+        # handle already has a card, so not reported
+        assert not any("views.py::handle" in f for f in report.new_functions)
+
+    def test_prune_keeps_valid_cards(self, project_for_prune: Path) -> None:
+        engine = RefreshEngine(project_for_prune)
+        engine.prune()
+
+        # handle card should still exist
+        assert (
+            project_for_prune
+            / ".repograph"
+            / "semantic_memory"
+            / "entries"
+            / "entry.views.handle.yaml"
+        ).exists()

@@ -92,7 +92,7 @@ def test_status_command_exists() -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["status", "--help"])
     assert result.exit_code == 0
-    assert "health status" in result.output
+    assert "project health" in result.output
 
 
 def test_structure_check_command_exists() -> None:
@@ -107,7 +107,7 @@ def test_test_impact_command_exists() -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["test-impact", "--help"])
     assert result.exit_code == 0
-    assert "--task" in result.output
+    assert "--since" in result.output
 
 
 def test_legacy_check_command_exists() -> None:

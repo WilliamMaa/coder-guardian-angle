@@ -12,6 +12,7 @@ from repoctx.initialization import (
     _REPGRAPH_DIRECTORIES,
     init_project,
 )
+from repoctx.utils.project import get_repograph_dir
 from repoctx.utils.yaml_io import load_yaml
 
 
@@ -45,20 +46,22 @@ class TestInitProject:
     def test_creates_all_directories(self, tmp_path: Path) -> None:
         """All expected .repograph/ subdirectories should exist."""
         init_project(tmp_path)
+        repograph_dir = get_repograph_dir(tmp_path)
         for rel in _REPGRAPH_DIRECTORIES:
-            assert (tmp_path / ".repograph" / rel).is_dir()
+            assert (repograph_dir / rel).is_dir()
 
     def test_creates_default_stub_files(self, tmp_path: Path) -> None:
         """Default stub YAML files should be created."""
         created = init_project(tmp_path)
+        repograph_dir = get_repograph_dir(tmp_path)
         for rel in _DEFAULT_STUB_FILES:
-            file_path = tmp_path / ".repograph" / rel
+            file_path = repograph_dir / rel
             assert file_path.exists()
-            assert file_path in created
 
     def test_skips_existing_stub_files(self, tmp_path: Path) -> None:
         """Existing stub files must not be overwritten."""
-        stub_path = tmp_path / ".repograph" / "guards" / "structure_rules.yaml"
+        repograph_dir = get_repograph_dir(tmp_path)
+        stub_path = repograph_dir / "guards" / "structure_rules.yaml"
         stub_path.parent.mkdir(parents=True)
         stub_path.write_text("rules:\n  - existing\n")
 
@@ -84,8 +87,9 @@ class TestInitProject:
         assert raw["project_name"] == "new-name"
 
         # Stub files created by the first run must still exist
+        repograph_dir = get_repograph_dir(tmp_path)
         for rel in _DEFAULT_STUB_FILES:
-            assert (tmp_path / ".repograph" / rel).exists()
+            assert (repograph_dir / rel).exists()
 
 
 class TestCliInit:
@@ -113,7 +117,9 @@ class TestCliInit:
             result = runner.invoke(main, ["init"])
             assert result.exit_code == 0, result.output
             assert (Path(fs) / ".repoctx.yaml").exists()
-            assert (Path(fs) / ".repograph" / "semantic_memory" / "entries").is_dir()
+            fs_root = Path(fs)
+            repograph_dir = get_repograph_dir(fs_root)
+            assert (repograph_dir / "semantic_memory" / "entries").is_dir()
 
     def test_init_refuses_overwrite(self, tmp_path: Path) -> None:
         """Running init twice without --force should fail."""

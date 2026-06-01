@@ -34,7 +34,7 @@ from repoctx.semantic_memory.versioning import (
 )
 from repoctx.tracer.base import CallNode, CallTree, TracerContext
 from repoctx.tracer.factory import get_tracer
-from repoctx.utils.project import find_project_root
+from repoctx.utils.project import find_project_root, get_repograph_dir
 from repoctx.utils.yaml_io import dump_yaml, load_yaml
 
 
@@ -102,6 +102,7 @@ class SemanticDigestEngine:
         if project_root is None:
             project_root = find_project_root()
         self.project_root = project_root.resolve()
+        self.repograph_dir = get_repograph_dir(self.project_root)
 
         if client is None:
             self.client = self._auto_client()
@@ -407,8 +408,7 @@ class SemanticDigestEngine:
 
     def _persist_entry_card(self, entry_card: EntryCard) -> Path:
         path = (
-            self.project_root
-            / ".repograph"
+            self.repograph_dir
             / "semantic_memory"
             / "entries"
             / f"{entry_card.id}.yaml"
@@ -421,8 +421,7 @@ class SemanticDigestEngine:
         paths: list[Path] = []
         for sc in symbol_cards:
             path = (
-                self.project_root
-                / ".repograph"
+                self.repograph_dir
                 / "semantic_memory"
                 / "symbols"
                 / f"{sc.id}.yaml"
@@ -434,8 +433,7 @@ class SemanticDigestEngine:
 
     def _persist_context_pack(self, context_pack: ContextPack) -> Path:
         path = (
-            self.project_root
-            / ".repograph"
+            self.repograph_dir
             / "semantic_memory"
             / "context_packs"
             / f"{context_pack.id}.yaml"
@@ -448,8 +446,7 @@ class SemanticDigestEngine:
 
     def _entry_card_path(self, entry_card: EntryCard) -> Path:
         return (
-            self.project_root
-            / ".repograph"
+            self.repograph_dir
             / "semantic_memory"
             / "entries"
             / f"{entry_card.id}.yaml"
@@ -457,8 +454,7 @@ class SemanticDigestEngine:
 
     def _symbol_card_path(self, symbol_card: SymbolCard) -> Path:
         return (
-            self.project_root
-            / ".repograph"
+            self.repograph_dir
             / "semantic_memory"
             / "symbols"
             / f"{symbol_card.id}.yaml"
@@ -467,8 +463,7 @@ class SemanticDigestEngine:
     def _load_existing_entry_card(self, entry: CallNode) -> EntryCard | None:
         module = self._module_name(entry.source.file)
         path = (
-            self.project_root
-            / ".repograph"
+            self.repograph_dir
             / "semantic_memory"
             / "entries"
             / f"entry.{module}.{entry.symbol}.yaml"
@@ -484,8 +479,7 @@ class SemanticDigestEngine:
     def _load_existing_symbol_card(self, node: CallNode) -> SymbolCard | None:
         module = self._module_name(node.source.file)
         path = (
-            self.project_root
-            / ".repograph"
+            self.repograph_dir
             / "semantic_memory"
             / "symbols"
             / f"symbol.{module}.{node.symbol}.yaml"

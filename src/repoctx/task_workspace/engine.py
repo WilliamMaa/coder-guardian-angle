@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from repoctx.llm.pipeline import PromptPipeline
-from repoctx.utils.project import find_project_root
+from repoctx.utils.project import find_project_root, get_repograph_dir
 from repoctx.utils.yaml_io import dump_yaml, load_yaml
 
 logger = logging.getLogger("repoctx.task_workspace")
@@ -97,7 +97,7 @@ def _entry_card_path(project_root: Path, file_path: str, symbol: str) -> Path | 
     if "/" not in file_path.replace("\\", "/"):
         candidates.append(f"entry.{symbol}.yaml")
 
-    base = project_root / ".repograph" / "semantic_memory" / "entries"
+    base = get_repograph_dir(project_root) / "semantic_memory" / "entries"
     for cand in candidates:
         p = base / cand
         if p.exists():
@@ -107,7 +107,7 @@ def _entry_card_path(project_root: Path, file_path: str, symbol: str) -> Path | 
 
 def _context_pack_path(project_root: Path, symbol: str) -> Path | None:
     """Return the path to an existing context pack, or None."""
-    base = project_root / ".repograph" / "semantic_memory" / "context_packs"
+    base = get_repograph_dir(project_root) / "semantic_memory" / "context_packs"
     candidate = base / f"context.{symbol}.yaml"
     return candidate if candidate.exists() else None
 
@@ -271,7 +271,7 @@ class TaskWorkspace:
     def __init__(self, project_root: Path, task_id: str) -> None:
         self.project_root = project_root.resolve()
         self.task_id = task_id
-        self.task_root = self.project_root / ".repograph" / "tasks" / task_id
+        self.task_root = get_repograph_dir(self.project_root) / "tasks" / task_id
 
     # ------------------------------------------------------------------
     # Factory

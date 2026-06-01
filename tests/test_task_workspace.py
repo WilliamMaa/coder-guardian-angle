@@ -55,17 +55,6 @@ class MockLLMClient:
 @pytest.fixture
 def task_project(tmp_path: Path) -> Path:
     """Create a minimal project with semantic memory cards for task testing."""
-    # .repoctx.yaml
-    dump_yaml(
-        {
-            "project_name": "test-project",
-            "language": "python",
-            "framework": "django",
-            "model_provider": {"api_key": "fake-key"},
-        },
-        tmp_path / ".repoctx.yaml",
-    )
-
     # Source files
     (tmp_path / "views.py").write_text(
         "from services import get_data\n\n"
@@ -226,10 +215,6 @@ class TestTaskWorkspaceCreate:
         assert "Accepted Understanding" in au or "Fix" in au
 
     def test_create_missing_entry_card(self, tmp_path: Path, mock_pipeline: PromptPipeline) -> None:
-        dump_yaml(
-            {"project_name": "x", "language": "python", "framework": "django"},
-            tmp_path / ".repoctx.yaml",
-        )
         with pytest.raises(TaskWorkspaceError, match="Entry card not found"):
             TaskWorkspace.create(
                 tmp_path,

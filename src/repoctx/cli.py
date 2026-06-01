@@ -111,7 +111,7 @@ def digest_entry(
     force: bool,
     verbose: bool,
 ) -> None:
-    """Digest an entry file and generate semantic memory cards."""
+    """Digest an entry file into semantic cards."""
     import logging
 
     if verbose:
@@ -177,7 +177,10 @@ def list_cards() -> None:
             f"{e}\n\nRun 'repoctx init' in your project root first."
         ) from e
 
-    base = project_root / ".repograph" / "semantic_memory"
+    from repoctx.utils.project import get_repograph_dir
+
+    repograph_dir = get_repograph_dir(project_root)
+    base = repograph_dir / "semantic_memory"
     sections = [
         ("Entry Cards", base / "entries"),
         ("Symbol Cards", base / "symbols"),
@@ -211,7 +214,7 @@ def list_cards() -> None:
 
 @main.command()
 def stale() -> None:
-    """Check which semantic memory cards are stale (source changed)."""
+    """Show stale cards (source changed)."""
     from repoctx.semantic_memory.refresh_engine import RefreshEngine
     from repoctx.utils.project import find_project_root
 
@@ -253,7 +256,10 @@ def delete_card(card_id: str) -> None:
             f"{e}\n\nRun 'repoctx init' in your project root first."
         ) from e
 
-    base = project_root / ".repograph" / "semantic_memory"
+    from repoctx.utils.project import get_repograph_dir
+
+    repograph_dir = get_repograph_dir(project_root)
+    base = repograph_dir / "semantic_memory"
     candidates = [
         base / "entries" / f"{card_id}.yaml",
         base / "symbols" / f"{card_id}.yaml",
@@ -273,13 +279,170 @@ def delete_card(card_id: str) -> None:
 
 
 @main.command()
+@click.argument("paths", nargs=-1)
+@click.option(
+    "--all",
+    "scan_all",
+    is_flag=True,
+    help="Audit every Python file in the project.",
+)
+@click.option(
+    "--dir",
+    "dirs",
+    multiple=True,
+    help="Audit all .py files under specific directorie(s).",
+)
+@click.option(
+    "--digest",
+    "auto_digest",
+    is_flag=True,
+    help="Auto-digest files that lack semantic memory (calls LLM).",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, writable=True),
+    help="Write report to a file instead of stdout.",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help="Show reuse suggestions and extra detail (default: errors only).",
+)
+@click.option(
+    "--deep",
+    is_flag=True,
+    help="Use LLM to analyze view files and suggest where helpers should be moved.",
+)
+@click.option(
+    "--since",
+    default="HEAD",
+    help="Git ref to compare against when not using --all (default: uncommitted changes).",
+)
+def audit(
+    paths: tuple[str, ...],
+    scan_all: bool,
+    dirs: tuple[str, ...],
+    auto_digest: bool,
+    output: str | None,
+    verbose: bool,
+    deep: bool,
+    since: str,
+) -> None:
+    """One-shot code quality audit.
+
+    This is the primary command for code quality audits. It scans files,
+    optionally digests missing ones, runs all guard checks, and produces
+    a unified report.
+
+    By default only hard errors are shown. Use --verbose to see reuse
+    suggestions and warnings.
+
+    \b
+    Examples:
+      repoctx audit                    # audit git diff only
+      repoctx audit --all              # audit entire project
+      repoctx audit --all --digest     # audit + auto-digest missing files
+      repoctx audit --dir app/views/   # audit a directory
+      repoctx audit --all -o report.md # write report to file
+      repoctx audit --all -v           # show everything including reuse suggestions
+    """
+    from pathlib import Path
+
+    from repoctx.audit import AuditEngine
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    # Build file list
+    file_list: list[str] = []
+    if paths:
+        file_list.extend(paths)
+    if dirs:
+        for d in dirs:
+            target = project_root / d
+            if target.is_dir():
+                file_list.extend(
+                    p.relative_to(project_root).as_posix()
+                    for p in target.rglob("*.py")
+                )
+            else:
+                click.echo(f"Warning: --dir '{d}' is not a directory, skipping.")
+
+    engine = AuditEngine(project_root)
+    result = engine.audit(
+        files=file_list if file_list else None,
+        scan_all=scan_all,
+        auto_digest=auto_digest,
+        since=since,
+    )
+
+    # Filter to errors only unless verbose
+    if not verbose:
+        result.reuse_suggestions = []
+        result.structure_violations = [v for v in result.structure_violations if v.severity == "error"]
+        result.legacy_violations = [v for v in result.legacy_violations if v.severity == "error"]
+
+    # --deep: LLM-driven refactoring suggestions for every scanned file
+    if deep:
+        from repoctx.refactor.refactor_suggest import RefactorSuggestEngine
+
+        target_files = result.files_scanned
+        if target_files:
+            deep_blocks: list[str] = []
+            try:
+                refactor_engine = RefactorSuggestEngine(project_root)
+                for tf in target_files:
+                    try:
+                        r = refactor_engine.suggest(tf)
+                        deep_blocks.append(r.format_markdown())
+                    except Exception as e:
+                        deep_blocks.append(f"**{tf}:** Skipped — {e}")
+                result.deep_analysis = deep_blocks
+            except Exception as e:
+                result.deep_analysis = [f"Deep analysis unavailable: {e}"]
+        else:
+            result.deep_analysis = ["--deep: no Python files in scanned scope."]
+
+    report = AuditEngine.generate_report(result)
+
+    if output:
+        Path(output).write_text(report, encoding="utf-8")
+        click.echo(f"Report written to {output}")
+    else:
+        click.echo(report)
+
+    hard_errors = len(
+        [v for v in result.structure_violations + result.legacy_violations if v.severity == "error"]
+    )
+    if hard_errors:
+        raise click.ClickException(f"Audit failed: {hard_errors} hard error(s).")
+
+
+@main.command()
 @click.option(
     "--affected",
     is_flag=True,
-    help="Refresh only stale cards and entries that depend on stale symbols.",
+    help="Refresh stale cards and entries that depend on stale symbols.",
 )
-def refresh(affected: bool) -> None:
-    """Refresh semantic memory cards."""
+@click.option(
+    "--prune",
+    is_flag=True,
+    help="Remove orphaned cards whose source functions no longer exist.",
+)
+def refresh(affected: bool, prune: bool) -> None:
+    """Refresh stale cards.
+
+    Use --affected to re-generate stale cards.
+    Use --prune to clean up orphaned cards after refactoring.
+    Both flags can be combined.
+    """
     import logging
 
     logging.basicConfig(
@@ -301,8 +464,47 @@ def refresh(affected: bool) -> None:
 
     refresh_engine = RefreshEngine(project_root)
 
+    # --- Prune phase ---
+    if prune:
+        click.echo("Pruning orphaned cards...")
+        prune_report = refresh_engine.prune()
+
+        if prune_report.pruned_entries:
+            click.echo(f"  Pruned {len(prune_report.pruned_entries)} entry card(s):")
+            for cid in prune_report.pruned_entries:
+                click.echo(f"    - {cid}")
+
+        if prune_report.pruned_symbols:
+            click.echo(f"  Pruned {len(prune_report.pruned_symbols)} symbol card(s):")
+            for cid in prune_report.pruned_symbols:
+                click.echo(f"    - {cid}")
+
+        if prune_report.pruned_contexts:
+            click.echo(f"  Pruned {len(prune_report.pruned_contexts)} context pack(s):")
+            for cid in prune_report.pruned_contexts:
+                click.echo(f"    - {cid}")
+
+        if prune_report.new_functions:
+            click.echo(f"\n  {len(prune_report.new_functions)} new function(s) without cards:")
+            for f in prune_report.new_functions:
+                click.echo(f"    - {f}")
+            click.echo("  Run 'repoctx audit --all --digest' to generate cards for them.")
+
+        total_pruned = (
+            len(prune_report.pruned_entries)
+            + len(prune_report.pruned_symbols)
+            + len(prune_report.pruned_contexts)
+        )
+        if total_pruned == 0 and not prune_report.new_functions:
+            click.echo("  No orphaned cards found. Semantic memory is clean.")
+
+        if not affected:
+            return
+
+    # --- Refresh phase ---
     if not affected:
-        click.echo("Use --affected to refresh stale cards. Without --affected, nothing happens.")
+        if not prune:
+            click.echo("Use --affected to refresh stale cards, or --prune to clean up orphans.")
         return
 
     click.echo("Scanning for stale cards...")
@@ -339,7 +541,7 @@ def semantic_diff(since: str) -> None:
 @main.command()
 @click.argument("flow_or_entry")
 def export_context(flow_or_entry: str) -> None:
-    """Export a context pack for a flow or entry."""
+    """Export a context pack."""
     click.echo(f"[repoctx export-context] {flow_or_entry}. Not yet implemented.")
 
 
@@ -367,7 +569,9 @@ def task_list() -> None:
             f"{e}\n\nRun 'repoctx init' in your project root first."
         ) from e
 
-    tasks_dir = project_root / ".repograph" / "tasks"
+    from repoctx.utils.project import get_repograph_dir
+
+    tasks_dir = get_repograph_dir(project_root) / "tasks"
     if not tasks_dir.exists():
         click.echo("No tasks found.")
         return
@@ -485,7 +689,9 @@ def task_status(task_id: str) -> None:
     workspace = TaskWorkspace(project_root, task_id)
     if not workspace.task_root.exists():
         click.echo(f"Task not found: {task_id}")
-        tasks_dir = project_root / ".repograph" / "tasks"
+        from repoctx.utils.project import get_repograph_dir
+
+        tasks_dir = get_repograph_dir(project_root) / "tasks"
         if tasks_dir.exists():
             click.echo("Available tasks:")
             for d in sorted(tasks_dir.iterdir()):
@@ -565,38 +771,455 @@ def task_validate(task_id: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Rules
+# ---------------------------------------------------------------------------
+
+@main.command("rules")
+def show_rules() -> None:
+    """Display current engineering constitution rules."""
+    from pathlib import Path
+
+    from repoctx.utils.project import find_project_root
+    from repoctx.utils.yaml_io import load_yaml
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    from repoctx.utils.project import get_repograph_dir
+
+    path = get_repograph_dir(project_root) / "guards" / "engineering_constitution.yaml"
+    if not path.exists():
+        click.echo("No engineering constitution found.")
+        return
+
+    try:
+        data = load_yaml(path)
+    except Exception as e:
+        raise click.ClickException(f"Failed to read rules: {e}") from e
+
+    click.echo("Engineering Constitution")
+    click.echo("=" * 40)
+
+    # Principles
+    principles = data.get("principles", [])
+    if principles:
+        click.echo("\nPrinciples:")
+        for p in principles:
+            click.echo(f"  - {p}")
+
+    # Rules
+    rules = data.get("rules", {})
+    if rules:
+        click.echo("\nRules:")
+        for rule_id, cfg in rules.items():
+            if isinstance(cfg, dict):
+                enabled = "ON" if cfg.get("enabled", True) else "OFF"
+                severity = cfg.get("severity", "error")
+                desc = cfg.get("description", "")
+                click.echo(f"  [{enabled:3}] [{severity:7}] {rule_id}")
+                if desc:
+                    click.echo(f"        {desc}")
+            else:
+                enabled = "ON" if cfg else "OFF"
+                click.echo(f"  [{enabled:3}] {rule_id}")
+    else:
+        click.echo("\nNo rules configured.")
+
+
+# ---------------------------------------------------------------------------
 # Guards
 # ---------------------------------------------------------------------------
 
-@main.command()
+@main.command(deprecated=True)
 def status() -> None:
-    """Show current working tree health status."""
-    click.echo("[repoctx status] Not yet implemented.")
+    """Show project health."""
+    from pathlib import Path
+
+    from repoctx.semantic_memory.refresh_engine import RefreshEngine
+    from repoctx.utils.project import find_project_root
+    from repoctx.utils.yaml_io import load_yaml
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    from repoctx.utils.project import get_repograph_dir
+
+    repograph = get_repograph_dir(project_root)
+
+    # Semantic memory stats
+    entries_dir = repograph / "semantic_memory" / "entries"
+    symbols_dir = repograph / "semantic_memory" / "symbols"
+    context_dir = repograph / "semantic_memory" / "context_packs"
+    entry_count = len(list(entries_dir.glob("*.yaml"))) if entries_dir.exists() else 0
+    symbol_count = len(list(symbols_dir.glob("*.yaml"))) if symbols_dir.exists() else 0
+    context_count = len(list(context_dir.glob("*.yaml"))) if context_dir.exists() else 0
+
+    # Stale count
+    try:
+        refresh_engine = RefreshEngine(project_root)
+        report = refresh_engine.find_stale()
+        stale_count = len(report.stale_entries) + len(report.stale_symbols)
+    except Exception:
+        stale_count = 0
+
+    # Task count
+    tasks_dir = repograph / "tasks"
+    task_count = len([d for d in tasks_dir.iterdir() if d.is_dir()]) if tasks_dir.exists() else 0
+
+    # Guard rules count
+    constitution_path = repograph / "guards" / "engineering_constitution.yaml"
+    rule_count = 0
+    if constitution_path.exists():
+        try:
+            data = load_yaml(constitution_path)
+            rule_count = len(data.get("rules", {}))
+        except Exception:
+            pass
+
+    click.echo(f"Project: {project_root.name}")
+    click.echo(f"")
+    click.echo(f"Semantic Memory:")
+    click.echo(f"  Entries:     {entry_count}")
+    click.echo(f"  Symbols:     {symbol_count}")
+    click.echo(f"  Contexts:    {context_count}")
+    click.echo(f"  Stale:       {stale_count}")
+    click.echo(f"")
+    click.echo(f"Tasks:         {task_count}")
+    click.echo(f"Guard Rules:   {rule_count}")
 
 
 @main.command()
-def structure_check() -> None:
-    """Check new code structure against engineering principles."""
-    click.echo("[repoctx structure-check] Not yet implemented.")
+@click.option(
+    "--since",
+    default="HEAD",
+    help="Git ref to compare against (default: uncommitted changes).",
+)
+@click.option(
+    "--file",
+    "files",
+    multiple=True,
+    help="Check specific file(s) instead of git diff.",
+)
+@click.option(
+    "--dir",
+    "dirs",
+    multiple=True,
+    help="Check all .py files under specific directorie(s).",
+)
+@click.option(
+    "--all",
+    "scan_all",
+    is_flag=True,
+    help="Scan all Python files in the project (useful for legacy code audits).",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, writable=True),
+    help="Write report to a file instead of stdout.",
+)
+@click.option(
+    "--format",
+    "report_format",
+    type=click.Choice(["markdown", "json"], case_sensitive=False),
+    default="markdown",
+    help="Report format (default: markdown).",
+)
+def structure_check(
+    since: str,
+    files: tuple[str, ...],
+    dirs: tuple[str, ...],
+    scan_all: bool,
+    output: str | None,
+    report_format: str,
+) -> None:
+    """Check code structure.
+
+    By default only scans files with uncommitted changes.
+    Use --all to scan the entire codebase, --dir for specific directories,
+    or --file to check specific files.
+    """
+    from pathlib import Path
+
+    from repoctx.guards.structure_check import StructureChecker
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    # Build file list from --file and --dir
+    file_list: list[str] = []
+    if files:
+        file_list.extend(files)
+    if dirs:
+        for d in dirs:
+            target = project_root / d
+            if target.is_dir():
+                file_list.extend(
+                    p.relative_to(project_root).as_posix()
+                    for p in target.rglob("*.py")
+                )
+            else:
+                click.echo(f"Warning: --dir '{d}' is not a directory, skipping.")
+
+    checker = StructureChecker(project_root)
+    violations = checker.check(
+        since=since,
+        files=file_list if file_list else None,
+        scan_all=scan_all,
+    )
+
+    # Determine which files were actually scanned for the report
+    scanned_files = file_list if file_list else []
+    if scan_all:
+        scanned_files = checker._collect_all_py_files()
+
+    if output:
+        report = StructureChecker.generate_report(
+            violations, scanned_files, format=report_format
+        )
+        Path(output).write_text(report, encoding="utf-8")
+        click.echo(f"Report written to {output}")
+    else:
+        click.echo(StructureChecker.format_report(violations))
+
+    if violations:
+        error_count = sum(1 for v in violations if v.severity == "error")
+        if error_count:
+            raise click.ClickException(
+                f"Structure check failed: {error_count} error(s)."
+            )
 
 
-@main.command()
-@click.option("--task", "task_id", help="Task ID for test-impact analysis.")
-def test_impact(task_id: str | None) -> None:
-    """Analyze test impact of current changes."""
-    click.echo(f"[repoctx test-impact] task={task_id}. Not yet implemented.")
+@main.command(deprecated=True)
+@click.option(
+    "--since",
+    default="HEAD",
+    help="Git ref to compare against (default: uncommitted changes).",
+)
+@click.option(
+    "--file",
+    "files",
+    multiple=True,
+    help="Analyze specific file(s) instead of git diff.",
+)
+def test_impact(since: str, files: tuple[str, ...]) -> None:
+    """Show test impact of changes."""
+    from repoctx.guards.test_impact import TestImpactAnalyzer
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    analyzer = TestImpactAnalyzer(project_root)
+    file_list = list(files) if files else None
+    result = analyzer.analyze(since=since, files=file_list)
+    click.echo(TestImpactAnalyzer.format_report(result))
 
 
-@main.command()
-def legacy_check() -> None:
-    """Check for legacy core violations."""
-    click.echo("[repoctx legacy-check] Not yet implemented.")
+@main.command(deprecated=True)
+@click.option(
+    "--since",
+    default="HEAD",
+    help="Git ref to compare against (default: uncommitted changes).",
+)
+@click.option(
+    "--file",
+    "files",
+    multiple=True,
+    help="Check specific file(s) instead of git diff.",
+)
+def legacy_check(since: str, files: tuple[str, ...]) -> None:
+    """Check legacy protections."""
+    from repoctx.guards.legacy_check import LegacyChecker
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    checker = LegacyChecker(project_root)
+    file_list = list(files) if files else None
+    violations = checker.check(since=since, files=file_list)
+
+    click.echo(LegacyChecker.format_report(violations))
+    if violations:
+        raise click.ClickException("Legacy check failed.")
 
 
-@main.command()
-def commit_check() -> None:
-    """Unified pre-commit gate check."""
-    click.echo("[repoctx commit-check] Not yet implemented.")
+@main.command(deprecated=True)
+@click.option(
+    "--since",
+    default="HEAD",
+    help="Git ref to compare against (default: uncommitted changes).",
+)
+@click.option(
+    "--file",
+    "files",
+    multiple=True,
+    help="Check specific file(s) instead of git diff.",
+)
+@click.option(
+    "--dir",
+    "dirs",
+    multiple=True,
+    help="Check all .py files under specific directorie(s).",
+)
+@click.option(
+    "--all",
+    "scan_all",
+    is_flag=True,
+    help="Scan all Python files in the project.",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(dir_okay=False, writable=True),
+    help="Write report to a file instead of stdout.",
+)
+def reuse_check(
+    since: str,
+    files: tuple[str, ...],
+    dirs: tuple[str, ...],
+    scan_all: bool,
+    output: str | None,
+) -> None:
+    """Detect duplicate implementations.
+
+    Compares new/modified functions against SymbolCards in semantic memory
+    and suggests reuse opportunities.
+    """
+    from pathlib import Path
+
+    from repoctx.guards.reuse_check import ReuseChecker
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    file_list: list[str] = []
+    if files:
+        file_list.extend(files)
+    if dirs:
+        for d in dirs:
+            target = project_root / d
+            if target.is_dir():
+                file_list.extend(
+                    p.relative_to(project_root).as_posix()
+                    for p in target.rglob("*.py")
+                )
+            else:
+                click.echo(f"Warning: --dir '{d}' is not a directory, skipping.")
+
+    checker = ReuseChecker(project_root)
+    suggestions = checker.check(
+        since=since,
+        files=file_list if file_list else None,
+        scan_all=scan_all,
+    )
+
+    report = ReuseChecker.format_report(suggestions)
+    if output:
+        Path(output).write_text(report, encoding="utf-8")
+        click.echo(f"Report written to {output}")
+    else:
+        click.echo(report)
+
+    if suggestions:
+        high = sum(1 for s in suggestions if s.confidence == "high")
+        if high:
+            raise click.ClickException(
+                f"Reuse check: {high} high-confidence duplication(s) detected."
+            )
+
+
+@main.command(deprecated=True)
+@click.option(
+    "--since",
+    default="HEAD",
+    help="Git ref to compare against (default: uncommitted changes).",
+)
+@click.option(
+    "--file",
+    "files",
+    multiple=True,
+    help="Check specific file(s) instead of git diff.",
+)
+@click.option(
+    "--dir",
+    "dirs",
+    multiple=True,
+    help="Check all .py files under specific directorie(s).",
+)
+@click.option(
+    "--all",
+    "scan_all",
+    is_flag=True,
+    help="Scan all Python files in the project (structure-check only).",
+)
+def commit_check(
+    since: str, files: tuple[str, ...], dirs: tuple[str, ...], scan_all: bool
+) -> None:
+    """Pre-commit gate: all checks in one."""
+    from pathlib import Path
+
+    from repoctx.guards.commit_check import CommitChecker
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    file_list: list[str] = []
+    if files:
+        file_list.extend(files)
+    if dirs:
+        for d in dirs:
+            target = project_root / d
+            if target.is_dir():
+                file_list.extend(
+                    p.relative_to(project_root).as_posix()
+                    for p in target.rglob("*.py")
+                )
+            else:
+                click.echo(f"Warning: --dir '{d}' is not a directory, skipping.")
+
+    checker = CommitChecker(project_root)
+    result = checker.check(
+        since=since,
+        files=file_list if file_list else None,
+        scan_all=scan_all,
+    )
+
+    click.echo(CommitChecker.format_report(result))
+    if not result["passed"]:
+        raise click.ClickException("Commit check failed. Fix violations before committing.")
 
 
 # ---------------------------------------------------------------------------

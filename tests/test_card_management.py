@@ -19,10 +19,6 @@ class TestDigestSkipAndForce:
     def test_skips_up_to_date_entry_card(self, tmp_path: Path) -> None:
         """If code_hash matches, EntryCard LLM call should be skipped."""
         (tmp_path / "views.py").write_text("def handle():\n    pass\n")
-        (tmp_path / ".repoctx.yaml").write_text(
-            "project_name: test\nlanguage: python\nframework: django\n"
-        )
-
         # With max_depth=1 there are no symbol nodes, so only EntryCard + ContextPack LLM calls.
         client = MockLLMClient([
             json.dumps({"summary": "ok", "business_role": ["r"], "main_downstream": []}),
@@ -54,10 +50,6 @@ class TestDigestSkipAndForce:
     def test_force_regenerates_everything(self, tmp_path: Path) -> None:
         """--force should bypass freshness check and call LLM again."""
         (tmp_path / "views.py").write_text("def handle():\n    pass\n")
-        (tmp_path / ".repoctx.yaml").write_text(
-            "project_name: test\nlanguage: python\nframework: django\n"
-        )
-
         client = MockLLMClient([
             json.dumps({"summary": "ok", "business_role": ["r"], "main_downstream": []}),
             json.dumps({
@@ -87,10 +79,6 @@ class TestDigestSkipAndForce:
     def test_re_generates_when_source_changes(self, tmp_path: Path) -> None:
         """If source file changes (code_hash differs), EntryCard should re-generate."""
         (tmp_path / "views.py").write_text("def handle():\n    pass\n")
-        (tmp_path / ".repoctx.yaml").write_text(
-            "project_name: test\nlanguage: python\nframework: django\n"
-        )
-
         client = MockLLMClient([
             json.dumps({"summary": "v1", "business_role": ["r"], "main_downstream": []}),
             json.dumps({
@@ -131,10 +119,17 @@ class TestCliListStaleDelete:
     @pytest.fixture
     def project_with_cards(self, tmp_path: Path) -> Path:
         """Create a project with a few fake cards."""
+        import os
+
+        repograph_dir = tmp_path / ".repograph"
+        old_env = os.environ.get("REPOCTX_REPOGRAPH_DIR")
+        os.environ["REPOCTX_REPOGRAPH_DIR"] = str(repograph_dir)
+
         (tmp_path / ".repoctx.yaml").write_text(
             "project_name: test\nlanguage: python\nframework: django\n"
         )
-        base = tmp_path / ".repograph" / "semantic_memory"
+        base = repograph_dir / "semantic_memory"
+        base.mkdir(parents=True, exist_ok=True)
 
         entry_card = {
             "card_type": "entry",
@@ -175,7 +170,12 @@ class TestCliListStaleDelete:
         dump_yaml(entry_card, base / "entries" / "entry.views.handle.yaml")
         dump_yaml(sym_card, base / "symbols" / "symbol.services.get_data.yaml")
         dump_yaml(ctx_pack, base / "context_packs" / "context.handle.yaml")
-        return tmp_path
+        yield tmp_path
+
+        if old_env is None:
+            os.environ.pop("REPOCTX_REPOGRAPH_DIR", None)
+        else:
+            os.environ["REPOCTX_REPOGRAPH_DIR"] = old_env
 
     def test_list_shows_cards(self, project_with_cards: Path) -> None:
         from click.testing import CliRunner
