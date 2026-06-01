@@ -862,6 +862,7 @@ def migrate_repograph(to: str | None, dry_run: bool) -> None:
       repoctx migrate-repograph
     """
     import shutil
+    from pathlib import Path
 
     from repoctx.utils.project import find_project_root, get_repograph_dir
     from repoctx.utils.yaml_io import dump_yaml, load_yaml
