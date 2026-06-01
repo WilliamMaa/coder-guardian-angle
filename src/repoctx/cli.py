@@ -831,6 +831,132 @@ def show_rules() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Migration
+# ---------------------------------------------------------------------------
+
+@main.command("migrate-repograph")
+@click.option(
+    "--to",
+    type=str,
+    help=(
+        "New repograph directory path. Can be absolute or relative to project root. "
+        "If provided, updates .repoctx.yaml and migrates data."
+    ),
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    help="Show what would be migrated without making changes.",
+)
+def migrate_repograph(to: str | None, dry_run: bool) -> None:
+    """Migrate .repograph data to a new location.
+
+    Usage:
+      # Set new location in .repoctx.yaml and migrate
+      repoctx migrate-repograph --to /path/to/new/repograph
+
+      # Preview migration without moving data
+      repoctx migrate-repograph --to /path/to/new/repograph --dry-run
+
+      # Migrate to the location already configured in .repoctx.yaml
+      repoctx migrate-repograph
+    """
+    import shutil
+
+    from repoctx.utils.project import find_project_root, get_repograph_dir
+    from repoctx.utils.yaml_io import dump_yaml, load_yaml
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    config_path = project_root / ".repoctx.yaml"
+    config = load_yaml(config_path)
+
+    # Determine old (current) location
+    old_dir = get_repograph_dir(project_root)
+
+    # Determine new location
+    if to:
+        new_dir = Path(to)
+        if not new_dir.is_absolute():
+            new_dir = project_root / new_dir
+        new_dir = new_dir.resolve()
+    else:
+        new_dir_str = config.get("repograph_dir")
+        if not new_dir_str:
+            raise click.ClickException(
+                "No repograph_dir configured in .repoctx.yaml.\n"
+                "Use --to to specify a new location, or add repograph_dir to .repoctx.yaml first."
+            )
+        new_dir = Path(new_dir_str)
+        if not new_dir.is_absolute():
+            new_dir = (project_root / new_dir).resolve()
+
+    if old_dir == new_dir:
+        click.echo(f"Source and destination are the same:\n  {old_dir}")
+        click.echo("Nothing to migrate.")
+        return
+
+    click.echo(f"Project root:  {project_root}")
+    click.echo(f"Current:       {old_dir}")
+    click.echo(f"Destination:   {new_dir}")
+
+    if not old_dir.exists():
+        click.echo("\nNo existing repograph data found at current location.")
+        if not dry_run and to:
+            # Just update config
+            config["repograph_dir"] = str(new_dir)
+            dump_yaml(config, config_path)
+            click.echo(f"Updated .repoctx.yaml repograph_dir → {new_dir}")
+        return
+
+    # Count what would be migrated
+    files_to_migrate = list(old_dir.rglob("*"))
+    files_count = len([f for f in files_to_migrate if f.is_file()])
+    dirs_count = len([d for d in files_to_migrate if d.is_dir()])
+
+    click.echo(f"\nItems to migrate: {files_count} files, {dirs_count} directories")
+
+    if dry_run:
+        click.echo("\n--dry-run: no changes made.")
+        return
+
+    if new_dir.exists():
+        existing = list(new_dir.iterdir())
+        if existing:
+            raise click.ClickException(
+                f"Destination already exists and is not empty:\n  {new_dir}\n"
+                f"Move or delete it first, or choose a different --to path."
+            )
+
+    # Perform migration
+    click.echo("\nMigrating...")
+    try:
+        shutil.copytree(old_dir, new_dir)
+    except Exception as e:
+        raise click.ClickException(f"Migration failed during copy: {e}") from e
+
+    # Update config if --to was specified
+    if to:
+        config["repograph_dir"] = str(new_dir)
+        dump_yaml(config, config_path)
+        click.echo(f"Updated .repoctx.yaml repograph_dir → {new_dir}")
+
+    # Verify
+    new_files = list(new_dir.rglob("*"))
+    new_files_count = len([f for f in new_files if f.is_file()])
+    if new_files_count == files_count:
+        click.echo(f"\n✅ Migration complete. {files_count} files copied.")
+        click.echo(f"You can now delete the old location if desired:\n  rm -rf {old_dir}")
+    else:
+        click.echo(f"\n⚠️ Migration finished but file count mismatch: {new_files_count} vs {files_count}")
+
+
+# ---------------------------------------------------------------------------
 # Guards
 # ---------------------------------------------------------------------------
 

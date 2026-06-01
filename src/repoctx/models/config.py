@@ -80,6 +80,14 @@ class RepoCtxConfig(BaseModel):
         default=".repograph/experiments",
         description="Directory for experiment memory storage",
     )
+    repograph_dir: str | None = Field(
+        default=None,
+        description=(
+            "Custom path for the .repograph directory. "
+            "If set, overrides the default ~/.repoctx/<project_name>/ location. "
+            "Can be absolute or relative to the project root."
+        ),
+    )
     model_provider: ModelProviderConfig = Field(
         default_factory=ModelProviderConfig,
         description="LLM model provider configuration",

@@ -52,8 +52,15 @@ def get_repograph_dir(project_root: Path | str | None = None) -> Path:
     except Exception as e:
         raise ProjectRootError(f"Failed to read project config: {e}") from e
 
-    project_name = config.get("project_name", root.name)
+    # Check for explicit repograph_dir in config
+    custom_dir = config.get("repograph_dir")
+    if custom_dir:
+        custom_path = Path(custom_dir)
+        if not custom_path.is_absolute():
+            custom_path = root / custom_path
+        return custom_path.resolve()
 
+    project_name = config.get("project_name", root.name)
     repograph_dir = Path.home() / ".repoctx" / str(project_name) / ".repograph"
     return repograph_dir
 

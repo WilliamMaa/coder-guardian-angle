@@ -47,6 +47,25 @@ repoctx task export 42 --pr       # 生成包含工程约束的 PR 描述
 repoctx task validate 42          # 检查完成前是否遗漏约束
 ```
 
+## 语义记忆位置配置
+
+默认 `.repograph/` 存放在 `~/.repoctx/<project_name>/`（避免 gitignore 问题）。
+
+如需自定义位置，在 `.repoctx.yaml` 中添加：
+
+```yaml
+project_name: rookiedata-agent
+repograph_dir: ./.repograph           # 相对项目根目录
+# repograph_dir: /mnt/shared/repograph # 绝对路径
+```
+
+迁移已有数据：
+
+```bash
+repoctx migrate-repograph --to ./.repograph --dry-run   # 预览
+repoctx migrate-repograph --to ./.repograph             # 执行迁移
+```
+
 ## 规则配置
 
 `.repograph/guards/engineering_constitution.yaml` 定义守卫规则：
@@ -71,6 +90,7 @@ rules:
 | `repoctx digest-entry <file>` | 注册 Entry 到语义记忆 |
 | `repoctx audit [--all] [-v] [--deep]` | 代码质量审计 |
 | `repoctx refresh [--affected] [--prune]` | 刷新语义记忆 |
+| `repoctx migrate-repograph --to <path>` | 迁移语义记忆目录 |
 | `repoctx task start <id>` | 创建任务工作区 |
 
 ## License
