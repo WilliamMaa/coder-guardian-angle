@@ -144,8 +144,8 @@ def test_exp_run_command_exists() -> None:
     runner = CliRunner()
     result = runner.invoke(main, ["exp", "run", "--help"])
     assert result.exit_code == 0
-    assert "--name" in result.output
-    assert "--cmd" in result.output
+    assert "CMD" in result.output
+    assert "--contract" in result.output
 
 
 def test_exp_summarize_command_exists() -> None:

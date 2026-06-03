@@ -1360,39 +1360,353 @@ def exp() -> None:
 
 
 @exp.command("init")
-def exp_init() -> None:
-    """Initialize an experiment workspace."""
-    click.echo("[repoctx exp init] Not yet implemented.")
+@click.option("--entry", required=True, help="Path to the experiment entry script.")
+@click.option("--name", required=True, help="Unique contract identifier.")
+@click.option("--symbol", default="main", help="Entry function name (default: main).")
+@click.option("--purpose", default="", help="Short description of the experiment.")
+def exp_init(entry: str, name: str, symbol: str, purpose: str) -> None:
+    """Initialize an experiment contract."""
+    from repoctx.experiments.contract import ContractEngine, ContractError
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    engine = ContractEngine(project_root)
+    try:
+        contract = engine.create(
+            entry_file=entry,
+            contract_id=name,
+            entry_symbol=symbol,
+            purpose=purpose,
+        )
+    except ContractError as e:
+        raise click.ClickException(str(e)) from e
+
+    click.echo(f"✅ Experiment contract created: {contract.id}")
+    click.echo(f"   Entry file: {contract.entry_file}")
+    click.echo(f"   Entry symbol: {contract.entry_symbol}")
+    click.echo(f"   Purpose: {contract.contract.purpose}")
+    if contract.contract.cli_args:
+        click.echo(f"   Detected CLI args: {', '.join(a.name for a in contract.contract.cli_args)}")
+    click.echo(f"\nEdit with: repoctx exp edit {contract.id}")
+
+
+@exp.command("edit")
+@click.argument("contract_id")
+def exp_edit(contract_id: str) -> None:
+    """Open an experiment contract in your default editor."""
+    import os
+    import subprocess
+
+    from repoctx.experiments.contract import ContractEngine, ContractError
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    engine = ContractEngine(project_root)
+    try:
+        path = engine._contract_path(contract_id)
+    except ContractError as e:
+        raise click.ClickException(str(e)) from e
+
+    if not path.exists():
+        raise click.ClickException(f"Contract '{contract_id}' not found.")
+
+    editor = os.environ.get("EDITOR", "vi")
+    click.echo(f"Opening {path} in {editor}...")
+    subprocess.call([editor, str(path)])
 
 
 @exp.command("check")
-@click.option("--config", required=True, help="Path to experiment config file.")
-def exp_check(config: str) -> None:
+@click.argument("contract_id")
+def exp_check(contract_id: str) -> None:
     """Run pre-experiment checks."""
-    click.echo(f"[repoctx exp check] config={config}. Not yet implemented.")
+    click.echo(f"[repoctx exp check] contract={contract_id}. Not yet implemented.")
 
 
 @exp.command("run")
-@click.option("--name", required=True, help="Experiment name (unique).")
-@click.option("--cmd", required=True, help="Command to run the experiment.")
-@click.option("--notify", help="Slack channel or email to notify on completion.")
-def exp_run(name: str, cmd: str, notify: str | None) -> None:
-    """Run an experiment with monitoring and summary."""
-    click.echo(f"[repoctx exp run] name={name}, cmd={cmd}. Not yet implemented.")
+@click.argument("cmd")
+@click.option("--contract", required=True, help="Contract ID to use.")
+@click.option("--output-dir", default=None, help="Override output directory.")
+@click.option("--notify", is_flag=True, default=False, help="Send Slack notification on completion.")
+def exp_run(cmd: str, contract: str, output_dir: str | None, notify: bool) -> None:
+    """Run an experiment in the background with monitoring.
+
+    Example:
+        repoctx exp run "python train.py --epochs 50" --contract my_exp --notify
+    """
+    from pathlib import Path
+
+    from repoctx.experiments.contract import ContractEngine, ContractError
+    from repoctx.experiments.monitor import ExperimentMonitor
+    from repoctx.experiments.runner import ExperimentRunner, RunnerError
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    # Load contract
+    contract_engine = ContractEngine(project_root)
+    try:
+        exp_contract = contract_engine.load(contract)
+    except ContractError as e:
+        raise click.ClickException(str(e)) from e
+
+    # Infer output_dir
+    if output_dir:
+        out = Path(output_dir)
+    else:
+        # Try to infer from cmd or contract defaults
+        out = _infer_output_dir(cmd, exp_contract)
+        out = project_root / out
+    out.mkdir(parents=True, exist_ok=True)
+
+    # Launch via nohup
+    runner = ExperimentRunner(project_root)
+    try:
+        pid, nohup_path = runner.nohup_start(cmd, contract_id=contract, output_dir=out)
+    except RunnerError as e:
+        raise click.ClickException(str(e)) from e
+
+    # Start monitor thread
+    monitor = ExperimentMonitor(
+        contract=exp_contract,
+        nohup_path=nohup_path,
+        pid=pid,
+        output_dir=out,
+        project_root=project_root,
+        cmd=cmd,
+        notify=notify,
+    )
+    monitor.start()
+
+    click.echo(f"🚀 Experiment launched: {contract}")
+    click.echo(f"   PID: {pid}")
+    click.echo(f"   Nohup log: {nohup_path}")
+    click.echo(f"   Output dir: {out}")
+    click.echo(f"   Monitor: started (background)")
+    if notify:
+        click.echo("   You will receive a notification when it completes.")
+
+
+def _infer_output_dir(cmd: str, contract: "ExperimentContract") -> Path:
+    """Infer output directory from --output_dir in cmd or contract default."""
+    import re
+    from pathlib import Path
+
+    m = re.search(r"--output[-_]?dir\s+(\S+)", cmd)
+    if m:
+        return Path(m.group(1))
+    for arg in contract.contract.cli_args:
+        if "output" in arg.name.lower() and arg.default:
+            return Path(arg.default)
+    return Path(".")
+
+
+@exp.command("history")
+@click.argument("contract_id")
+@click.option("--status", default=None, help="Filter by status (e.g. completed, failed).")
+@click.option("--limit", default=20, help="Max number of runs to show.")
+def exp_history(contract_id: str, status: str | None, limit: int) -> None:
+    """Show run history for a contract."""
+    from repoctx.experiments.history import HistoryEngine, HistoryError
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    engine = HistoryEngine(project_root)
+    try:
+        entries = engine.list_runs(contract_id=contract_id, status_filter=status, limit=limit)
+    except HistoryError as e:
+        raise click.ClickException(str(e)) from e
+
+    if not entries:
+        click.echo(f"No runs found for contract '{contract_id}'.")
+        return
+
+    click.echo(f"{'Run ID':<40} {'Status':<12} {'Started':<16} {'Duration':<10} {'Files'}")
+    click.echo("-" * 90)
+    for e in entries:
+        click.echo(f"{e.run_id:<40} {e.status:<12} {e.started_at:<16} {e.duration:<10} {e.result_count}")
 
 
 @exp.command("summarize")
 @click.argument("run_id")
 def exp_summarize(run_id: str) -> None:
     """Summarize a completed experiment run."""
-    click.echo(f"[repoctx exp summarize] run={run_id}. Not yet implemented.")
+    from repoctx.experiments.history import HistoryEngine, HistoryError
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    engine = HistoryEngine(project_root)
+    try:
+        run = engine.get_run(run_id)
+    except HistoryError as e:
+        raise click.ClickException(str(e)) from e
+
+    click.echo(f"# Run Summary: {run.id}")
+    click.echo(f"Contract: {run.contract_id}")
+    click.echo(f"Command: {run.cmd}")
+    click.echo(f"PID: {run.pid}")
+    click.echo(f"Status: {run.light_analysis.status}")
+    click.echo(f"Duration: {_fmt_dur(run.duration_seconds)}")
+    click.echo(f"Started: {run.started_at or 'N/A'}")
+    click.echo(f"Ended: {run.ended_at or 'N/A'}")
+    click.echo(f"Result files: {len(run.result_files)}")
+    for rf in run.result_files:
+        click.echo(f"  - {rf.path} ({rf.source})")
+    click.echo("")
+    click.echo("## LLM Summary")
+    click.echo(run.llm_analysis.summary or "(none)")
+
+
+def _fmt_dur(seconds: float | None) -> str:
+    if seconds is None:
+        return "N/A"
+    m, s = divmod(int(seconds), 60)
+    h, m = divmod(m, 60)
+    return f"{h}h {m}m {s}s" if h else f"{m}m {s}s"
+
+
+@exp.command("ps")
+def exp_ps() -> None:
+    """List currently running experiments."""
+    import os
+
+    from repoctx.experiments.history import HistoryEngine
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    engine = HistoryEngine(project_root)
+    runs = engine.list_runs(status_filter="running", limit=100)
+
+    active: list[tuple[str, str, int]] = []
+    for entry in runs:
+        # Try to validate PID is still alive
+        try:
+            run = engine.get_run(entry.run_id)
+        except Exception:
+            continue
+        pid = run.pid
+        if pid is None:
+            continue
+        try:
+            os.kill(pid, 0)
+            active.append((entry.run_id, entry.contract_id, pid))
+        except (OSError, ProcessLookupError):
+            pass
+
+    if not active:
+        click.echo("No running experiments.")
+        return
+
+    click.echo(f"{'Run ID':<40} {'Contract':<20} {'PID'}")
+    click.echo("-" * 70)
+    for run_id, cid, pid in active:
+        click.echo(f"{run_id:<40} {cid:<20} {pid}")
+
+
+@exp.command("logs")
+@click.argument("contract_id")
+@click.option("--lines", default=50, help="Number of tail lines to show.")
+def exp_logs(contract_id: str, lines: int) -> None:
+    """Tail the nohup log of the latest run for a contract."""
+    from repoctx.experiments.history import HistoryEngine, HistoryError
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    engine = HistoryEngine(project_root)
+    runs = engine.list_runs(contract_id=contract_id, limit=1)
+    if not runs:
+        raise click.ClickException(f"No runs found for contract '{contract_id}'.")
+
+    try:
+        run = engine.get_run(runs[0].run_id)
+    except HistoryError as e:
+        raise click.ClickException(str(e)) from e
+
+    nohup_path = run.nohup_path
+    if not nohup_path:
+        raise click.ClickException("No nohup log recorded for this run.")
+
+    from pathlib import Path
+    path = Path(nohup_path)
+    if not path.exists():
+        raise click.ClickException(f"Nohup log not found: {path}")
+
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            all_lines = f.readlines()
+            tail = all_lines[-lines:]
+    except OSError as e:
+        raise click.ClickException(f"Failed to read log: {e}") from e
+
+    click.echo(f"--- Last {len(tail)} lines of {path} ---")
+    click.echo("".join(tail))
 
 
 @exp.command("diagnose")
-@click.argument("run_id")
-def exp_diagnose(run_id: str) -> None:
-    """Diagnose an experiment run with dual-track analysis."""
-    click.echo(f"[repoctx exp diagnose] run={run_id}. Not yet implemented.")
+@click.argument("contract_id")
+@click.option("--compare-recent-success-num", default=1, help="Compare against N recent successful runs.")
+def exp_diagnose(contract_id: str, compare_recent_success_num: int) -> None:
+    """Diagnose an experiment contract by comparing recent runs."""
+    from repoctx.experiments.diagnose import DiagnoseEngine, DiagnoseError
+    from repoctx.utils.project import find_project_root
+
+    try:
+        project_root = find_project_root()
+    except Exception as e:
+        raise click.ClickException(
+            f"{e}\n\nRun 'repoctx init' in your project root first."
+        ) from e
+
+    engine = DiagnoseEngine(project_root)
+    try:
+        report = engine.diagnose(
+            contract_id=contract_id,
+            compare_recent_success_num=compare_recent_success_num,
+        )
+    except DiagnoseError as e:
+        raise click.ClickException(str(e)) from e
+
+    click.echo(report.format())
 
 
 if __name__ == "__main__":
